@@ -9,14 +9,16 @@ import {
   Modal, 
   ActivityIndicator, 
   Image, 
-  TextInput,
-  Platform
+  TextInput, 
+  Platform, 
+  Alert 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { Video, ResizeMode } from 'expo-av';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 
 const THEME = {
   bg: '#000000',           
@@ -34,6 +36,12 @@ const THEME = {
 
 export type SupportedLang = 'en-US' | 'zh-TW';
 
+const STORAGE_KEYS = {
+  VENUES: 'tacit_custom_venues_v2',
+  CARDS: 'tacit_custom_cards_v2',
+  WALLPAPERS: 'tacit_wallpapers_v2'
+};
+
 const LOCAL_BOT_ASSETS = {
   floating: Platform.OS === 'web' ? 'https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif' : require('../../../bot/gif/Floating.mp4'),
   listen: Platform.OS === 'web' ? 'https://media.giphy.com/media/3o7bu3XilJ5BOiSGic/giphy.gif' : require('../../../bot/gif/Listen.mp4'),
@@ -45,7 +53,6 @@ const LOCAL_BOT_ASSETS = {
   bye: 'https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif',
 };
 
-// 🎥 CRITICAL FIX: Cross-platform Video Player (HTML5 for Web, expo-av for iOS/Android)
 const MochiMediaPlayer: React.FC<{ source: any; style?: any }> = ({ source, style }) => {
   if (Platform.OS === 'web') {
     let uri = '';
@@ -69,7 +76,6 @@ const MochiMediaPlayer: React.FC<{ source: any; style?: any }> = ({ source, styl
     return <Image key={uri} source={{ uri }} style={[{ width: '100%', height: '100%', resizeMode: 'cover' }, style]} />;
   }
 
-  // NATIVE IOS & ANDROID
   return (
     <Video
       source={source}
@@ -86,8 +92,38 @@ const realTranslate = async (text: string, fromLang: string, toLang: string) => 
   try {
     const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${fromLang}|${toLang}`);
     const data = await res.json();
-    return data.responseData.translatedText;
-  } catch (error) { return `[Translation Error] ${text}`; }
+    return data.responseData?.translatedText || text;
+  } catch (error) { return text; }
+};
+
+const fetchGeminiDynamicReplies = async (heardText: string, venueName: string) => {
+  try {
+    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    if (!apiKey) return null;
+    
+    const prompt = `User is deaf/non-verbal at a counter: "${venueName}".
+The clerk just said: "${heardText}".
+Generate 2 to 3 concise 1-tap quick replies in Traditional Chinese (zh-TW) and English (en-US).
+Return strictly JSON formatted as:
+[
+  { "zh": "不用，謝謝", "en": "No, thank you", "tts": "不用，謝謝" },
+  { "zh": "好的，麻煩你", "en": "Yes, please", "tts": "好的，麻煩你" }
+]`;
+
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
+      })
+    });
+    const data = await res.json();
+    const rawReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleanJson = rawReply.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (e) {
+    return null;
+  }
 };
 
 const fetchGeminiResponse = async (userText: string) => {
@@ -100,17 +136,14 @@ const fetchGeminiResponse = async (userText: string) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [
-          { role: "user", parts: [{ text: "You are Mochi, a helpful AI assistant in Taiwan. Keep responses extremely concise (1-2 sentences). Respond to the next prompt naturally." }] },
+          { role: "user", parts: [{ text: "You are Mochi, a helpful AI assistant in Taiwan. Keep responses concise (1-2 sentences). Respond naturally." }] },
           { role: "user", parts: [{ text: userText }] }
         ]
       })
     });
     const data = await res.json();
     if (data.error) return `API Error: ${data.error.message}`;
-    if (data.candidates && data.candidates[0].content) {
-      return data.candidates[0].content.parts[0].text;
-    }
-    return "I couldn't generate a response.";
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
   } catch (e) {
     return "Connection error with Gemini.";
   }
@@ -121,30 +154,33 @@ export const LANGUAGE_LIST = [
   { code: 'en-US', name: 'English (US)', short: 'English' }
 ];
 
-const STORES_DATA = [
+const DEFAULT_STORES_DATA = [
   { id: "cvs", name: { "zh-TW": "便利商店", "en-US": "Convenience Store" }, short: "7 Eleven", emoji: "🏪", coverImage: "https://images.unsplash.com/photo-1601599561096-f87c95fff1e9?w=1200", mochi: LOCAL_BOT_ASSETS.sevenEleven },
-  { id: "drink", name: { "zh-TW": "飲料店", "en-US": "Drink Shop" }, short: "Cafe", emoji: "🧋", coverImage: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1200", mochi: LOCAL_BOT_ASSETS.cafe },
+  { id: "drink", name: { "zh-TW": "咖啡・飲料店", "en-US": "Cafe & Drinks" }, short: "Cafe", emoji: "🧋", coverImage: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1200", mochi: LOCAL_BOT_ASSETS.cafe },
   { id: "breakfast", name: { "zh-TW": "早餐店", "en-US": "Breakfast Shop" }, short: "Breakfast", emoji: "🥪", coverImage: "https://images.unsplash.com/photo-1525351484163-7529414344d8?w=1200", mochi: LOCAL_BOT_ASSETS.restaurant },
-  { id: "pharmacy", name: { "zh-TW": "藥局", "en-US": "Pharmacy" }, short: "Pharmacy", emoji: "💊", coverImage: "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=1200", mochi: LOCAL_BOT_ASSETS.hospital },
-  { id: "market", name: { "zh-TW": "市場", "en-US": "Traditional Market" }, short: "Market", emoji: "🥬", coverImage: "https://images.unsplash.com/photo-1533900298318-6b8da08a523e?w=1200", mochi: LOCAL_BOT_ASSETS.restaurant },
+  { id: "pharmacy", name: { "zh-TW": "藥局・診所", "en-US": "Pharmacy & Clinic" }, short: "Pharmacy", emoji: "💊", coverImage: "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=1200", mochi: LOCAL_BOT_ASSETS.hospital },
   { id: "buffet", name: { "zh-TW": "自助餐・便當", "en-US": "Bento & Buffet" }, short: "Buffet", emoji: "🍱", coverImage: "https://images.unsplash.com/photo-1548943487-a2e4b43b5930?w=1200", mochi: LOCAL_BOT_ASSETS.restaurant },
+  { id: "university", name: { "zh-TW": "校園・圖書館", "en-US": "Campus & Library" }, short: "Campus", emoji: "🏫", coverImage: "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200", mochi: LOCAL_BOT_ASSETS.floating },
   { id: "salon", name: { "zh-TW": "美髮店", "en-US": "Hair Salon" }, short: "Salon", emoji: "✂️", coverImage: "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200", mochi: LOCAL_BOT_ASSETS.floating },
-  { id: "other", name: { "zh-TW": "任何店家", "en-US": "General Store" }, short: "Other", emoji: "🏬", coverImage: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200", mochi: LOCAL_BOT_ASSETS.floating }
+  { id: "other", name: { "zh-TW": "其他地點", "en-US": "General Place" }, short: "General", emoji: "🏬", coverImage: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200", mochi: LOCAL_BOT_ASSETS.floating }
 ];
 
-const CARDS_DATA = [
-  { id: "greet", stores: ["*"], keywords: ["how are you", "hello", "hi", "what do you want", "how can i help", "你好", "早安", "午安", "怎麼了", "需要什麼"], options: [{ labels: { "zh-TW": "你好", "en-US": "Hello" }, subLabels: { "zh-TW": "打招呼", "en-US": "General greeting" }, tts: "你好" }, { labels: { "zh-TW": "我需要幫忙", "en-US": "I need help" }, subLabels: { "zh-TW": "請求協助", "en-US": "Ask for assistance" }, tts: "你好，我需要一些幫忙。" }] },
-  { id: "dinein", stores: ["*"], keywords: ["內用", "外帶", "帶走", "這裡吃", "在這吃", "here", "to go", "dine in", "takeout"], options: [{ labels: { "zh-TW": "內用", "en-US": "Dine In" }, subLabels: { "zh-TW": "在這裡吃", "en-US": "Eat here" }, tts: "內用，謝謝" }, { labels: { "zh-TW": "外帶", "en-US": "Takeout" }, subLabels: { "zh-TW": "帶走", "en-US": "To go" }, tts: "外帶，謝謝" }] },
-  { id: "carrier", stores: ["*"], keywords: ["載具", "條碼", "雲端發票", "發票", "receipt", "barcode"], options: [{ labels: { "zh-TW": "手機條碼", "en-US": "Scan Phone Barcode" }, subLabels: { "zh-TW": "存入載具", "en-US": "Save to carrier" }, tts: "有，我給你掃手機條碼" }, { labels: { "zh-TW": "不用", "en-US": "No Receipt Needed" }, subLabels: { "zh-TW": "不印發票", "en-US": "No paper receipt" }, tts: "不用，謝謝" }] },
-  { id: "pay", stores: ["*"], keywords: ["現金", "刷卡", "付款", "支付", "pay", "悠遊卡", "cash", "credit card"], options: [{ labels: { "zh-TW": "現金", "en-US": "Cash" }, subLabels: { "zh-TW": "付現", "en-US": "Pay in cash" }, tts: "現金付款" }, { labels: { "zh-TW": "刷卡", "en-US": "Card / Apple Pay" }, subLabels: { "zh-TW": "信用卡或感應", "en-US": "Credit or NFC" }, tts: "刷卡" }] },
-  { id: "bag", stores: ["*"], keywords: ["袋子", "提袋", "購物袋", "塑膠袋", "bag"], options: [{ labels: { "zh-TW": "要袋子", "en-US": "Need Bag" }, subLabels: { "zh-TW": "買一個提袋", "en-US": "Buy a shopping bag" }, tts: "要，謝謝" }, { labels: { "zh-TW": "不用", "en-US": "No Bag" }, subLabels: { "zh-TW": "我自己有帶", "en-US": "I have my own" }, tts: "不用，謝謝" }] },
-  { id: "heat", stores: ["cvs"], keywords: ["加熱", "微波", "熱一下", "要熱嗎", "heat", "microwave", "warm"], options: [{ labels: { "zh-TW": "要微波", "en-US": "Heat up" }, subLabels: { "zh-TW": "幫我加熱", "en-US": "Microwave please" }, tts: "要，謝謝" }, { labels: { "zh-TW": "不用", "en-US": "No need" }, subLabels: { "zh-TW": "維持原樣", "en-US": "Keep it as is" }, tts: "不用，謝謝" }] },
-  { id: "icelevel", stores: ["drink"], keywords: ["冰塊", "正常冰", "少冰", "微冰", "去冰", "冰量", "冰的", "熱的", "ice", "hot", "cold"], options: [{ labels: { "zh-TW": "少冰", "en-US": "Less Ice" }, subLabels: { "zh-TW": "減少冰塊", "en-US": "Reduce ice" }, tts: "少冰" }, { labels: { "zh-TW": "去冰", "en-US": "No Ice" }, subLabels: { "zh-TW": "完全不要冰塊", "en-US": "Zero ice" }, tts: "去冰" }] },
-  { id: "sugar", stores: ["drink"], keywords: ["糖", "甜", "sugar", "sweet"], options: [{ labels: { "zh-TW": "微糖", "en-US": "Light Sugar" }, subLabels: { "zh-TW": "30% 糖", "en-US": "30% sweetness" }, tts: "微糖" }, { labels: { "zh-TW": "無糖", "en-US": "No Sugar" }, subLabels: { "zh-TW": "0% 糖", "en-US": "0% sweetness" }, tts: "無糖" }] },
-  { id: "egg", stores: ["breakfast"], keywords: ["加蛋", "加個蛋", "要蛋", "egg"], options: [{ labels: { "zh-TW": "要加蛋", "en-US": "Add Egg" }, subLabels: { "zh-TW": "加一顆荷包蛋", "en-US": "Add a fried egg" }, tts: "要加蛋" }, { labels: { "zh-TW": "不用", "en-US": "No Egg" }, subLabels: { "zh-TW": "維持原樣", "en-US": "Keep as is" }, tts: "不用，謝謝" }] },
-  { id: "allergy", stores: ["pharmacy"], keywords: ["過敏", "allergy", "allergies"], options: [{ labels: { "zh-TW": "沒有過敏", "en-US": "No Allergies" }, subLabels: { "zh-TW": "沒有藥物過敏", "en-US": "No drug allergies" }, tts: "沒有過敏" }, { labels: { "zh-TW": "有過敏", "en-US": "Have Allergies" }, subLabels: { "zh-TW": "我對某些藥物過敏", "en-US": "Allergic to some meds" }, tts: "我有藥物過敏" }] },
-  { id: "rice", stores: ["buffet"], keywords: ["白飯", "飯要", "飯量", "半碗", "飯多少", "飯少", "rice"], options: [{ labels: { "zh-TW": "正常", "en-US": "Normal Rice" }, subLabels: { "zh-TW": "正常份量", "en-US": "Standard portion" }, tts: "飯正常" }, { labels: { "zh-TW": "少一點", "en-US": "Less Rice" }, subLabels: { "zh-TW": "飯量減半", "en-US": "Half portion" }, tts: "飯少一點" }, { labels: { "zh-TW": "不要飯", "en-US": "No Rice" }, subLabels: { "zh-TW": "只要菜", "en-US": "Only side dishes" }, tts: "不要飯" }] },
-  { id: "length", stores: ["salon"], keywords: ["剪多短", "多短", "剪多少", "長度", "剪短", "修一下", "short", "trim", "length"], options: [{ labels: { "zh-TW": "修一點就好", "en-US": "Just a trim" }, subLabels: { "zh-TW": "維持現有長度", "en-US": "Keep current length" }, tts: "修一點就好" }, { labels: { "zh-TW": "照照片剪", "en-US": "Follow photo" }, subLabels: { "zh-TW": "給您看參考圖", "en-US": "Show reference picture" }, tts: "照我給您看的照片剪" }] }
+const DEFAULT_CARDS_DATA = [
+  // High Priority: Specific to situation
+  { id: "icelevel", stores: ["drink"], priority: 1, keywords: ["冰塊", "正常冰", "少冰", "微冰", "去冰", "熱的", "ice", "hot"], options: [{ labels: { "zh-TW": "少冰", "en-US": "Less Ice" }, subLabels: { "zh-TW": "減冰", "en-US": "Reduce ice" }, tts: "少冰" }, { labels: { "zh-TW": "去冰", "en-US": "No Ice" }, subLabels: { "zh-TW": "不要冰", "en-US": "Zero ice" }, tts: "去冰" }, { labels: { "zh-TW": "熱的", "en-US": "Hot" }, subLabels: { "zh-TW": "溫熱飲", "en-US": "Warm" }, tts: "熱的" }] },
+  { id: "sugar", stores: ["drink"], priority: 1, keywords: ["糖", "甜", "半糖", "微糖", "無糖", "sugar", "sweet"], options: [{ labels: { "zh-TW": "無糖", "en-US": "No Sugar" }, subLabels: { "zh-TW": "0% 甜度", "en-US": "0% sweetness" }, tts: "無糖" }, { labels: { "zh-TW": "微糖", "en-US": "Light Sugar" }, subLabels: { "zh-TW": "30% 甜度", "en-US": "30% sweetness" }, tts: "微糖" }, { labels: { "zh-TW": "半糖", "en-US": "Half Sugar" }, subLabels: { "zh-TW": "50% 甜度", "en-US": "50% sweetness" }, tts: "半糖" }] },
+  { id: "heat", stores: ["cvs"], priority: 1, keywords: ["加熱", "微波", "熱一下", "要熱嗎", "heat", "microwave"], options: [{ labels: { "zh-TW": "要微波", "en-US": "Heat up" }, subLabels: { "zh-TW": "請幫我微波", "en-US": "Microwave please" }, tts: "要微波，謝謝" }, { labels: { "zh-TW": "不用加熱", "en-US": "No need" }, subLabels: { "zh-TW": "維持現樣", "en-US": "Keep cool" }, tts: "不用加熱，謝謝" }] },
+  { id: "rice", stores: ["buffet"], priority: 1, keywords: ["白飯", "飯要", "半碗", "飯量", "rice"], options: [{ labels: { "zh-TW": "正常飯", "en-US": "Normal Rice" }, subLabels: { "zh-TW": "標準量", "en-US": "Standard portion" }, tts: "飯正常" }, { labels: { "zh-TW": "少飯", "en-US": "Less Rice" }, subLabels: { "zh-TW": "半碗飯", "en-US": "Half portion" }, tts: "飯少一點" }, { labels: { "zh-TW": "不要飯", "en-US": "No Rice" }, subLabels: { "zh-TW": "只要菜", "en-US": "Only dishes" }, tts: "不要飯" }] },
+  { id: "campus_inquire", stores: ["university"], priority: 1, keywords: ["學生證", "借書", "找哪位", "教室", "library", "id", "card"], options: [{ labels: { "zh-TW": "我找圖書館櫃檯", "en-US": "Library Counter" }, subLabels: { "zh-TW": "借還書詢問", "en-US": "Borrow/return books" }, tts: "您好，我需要借還書或查資料協助。" }, { labels: { "zh-TW": "出示學生證", "en-US": "Show Student ID" }, subLabels: { "zh-TW": "驗證身分", "en-US": "Verify student id" }, tts: "這是我的學生證。" }] },
+  
+  // Medium Priority: Common transactional steps
+  { id: "carrier", stores: ["*"], priority: 2, keywords: ["載具", "條碼", "發票", "統編", "receipt", "barcode"], options: [{ labels: { "zh-TW": "手機載具", "en-US": "Phone Barcode" }, subLabels: { "zh-TW": "存入手機條碼", "en-US": "Save to carrier" }, tts: "有載具，給您掃手機條碼" }, { labels: { "zh-TW": "不用發票", "en-US": "No Receipt" }, subLabels: { "zh-TW": "不印發票", "en-US": "No printout" }, tts: "不用發票，謝謝" }] },
+  { id: "pay", stores: ["*"], priority: 2, keywords: ["現金", "刷卡", "付款", "支付", "悠遊卡", "line pay", "apple pay", "cash", "card"], options: [{ labels: { "zh-TW": "刷卡 / 行動支付", "en-US": "Card / Apple Pay" }, subLabels: { "zh-TW": "感應付款", "en-US": "NFC or card" }, tts: "我用刷卡或行動支付" }, { labels: { "zh-TW": "付現", "en-US": "Cash" }, subLabels: { "zh-TW": "現金付款", "en-US": "Pay in cash" }, tts: "我付現金" }] },
+  { id: "bag", stores: ["*"], priority: 2, keywords: ["袋子", "提袋", "購物袋", "塑膠袋", "bag"], options: [{ labels: { "zh-TW": "要袋子", "en-US": "Need Bag" }, subLabels: { "zh-TW": "購買提袋", "en-US": "Buy bag" }, tts: "要袋子，謝謝" }, { labels: { "zh-TW": "自備袋子", "en-US": "No Bag" }, subLabels: { "zh-TW": "自己有袋子", "en-US": "I have my own" }, tts: "不用袋子，我自備了" }] },
+  { id: "dinein", stores: ["*"], priority: 2, keywords: ["內用", "外帶", "這裡吃", "帶走", "to go", "dine in"], options: [{ labels: { "zh-TW": "內用", "en-US": "Dine In" }, subLabels: { "zh-TW": "在店裡吃", "en-US": "Eat here" }, tts: "內用，謝謝" }, { labels: { "zh-TW": "外帶", "en-US": "Takeout" }, subLabels: { "zh-TW": "外帶帶走", "en-US": "To go" }, tts: "外帶，謝謝" }] },
+  
+  // Low Priority: Universal greetings / confirmation (Always placed at bottom)
+  { id: "greet", stores: ["*"], priority: 3, keywords: ["你好", "早安", "午安", "需要什麼", "怎麼了", "hello", "hi", "help"], options: [{ labels: { "zh-TW": "你好，謝謝", "en-US": "Hello / Thank you" }, subLabels: { "zh-TW": "基本禮貌", "en-US": "Greeting" }, tts: "你好，謝謝您！" }, { labels: { "zh-TW": "我需要幫忙", "en-US": "Need Assistance" }, subLabels: { "zh-TW": "說明需求", "en-US": "Ask help" }, tts: "您好，我需要一點協助。" }] }
 ];
 
 export const CounterConversationScreen: React.FC = () => {
@@ -155,8 +191,10 @@ export const CounterConversationScreen: React.FC = () => {
   const [fontScale, setFontScale] = useState(1);
   const [isCounterMode, setIsCounterMode] = useState(false);
   
-  const [venues] = useState(STORES_DATA);
-  const [activeVenue, setActiveVenue] = useState(STORES_DATA[0]);
+  const [venues, setVenues] = useState(DEFAULT_STORES_DATA);
+  const [activeVenue, setActiveVenue] = useState(DEFAULT_STORES_DATA[0]);
+  const [cardsData, setCardsData] = useState(DEFAULT_CARDS_DATA);
+  
   const [customWallpapers, setCustomWallpapers] = useState<Record<string, string>>({});
   const [wallpaperInputUrl, setWallpaperInputUrl] = useState('');
   
@@ -174,6 +212,7 @@ export const CounterConversationScreen: React.FC = () => {
 
   const [isAutoDetecting, setIsAutoDetecting] = useState(false);
   const [nearbyVenueFound, setNearbyVenueFound] = useState<any>(null);
+  const autoDetectTimerRef = useRef<any>(null);
   
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [liveStreamText, setLiveStreamText] = useState('');
@@ -183,34 +222,77 @@ export const CounterConversationScreen: React.FC = () => {
   const roamRef = useRef({ x: 260, y: 140, vx: -0.6, vy: -0.5 });
   const containerSizeRef = useRef({ width: 440, height: 760 });
 
-  // 💾 Native Storage for Wallpapers
+  // 💾 PERSISTENCE STORAGE LOADER (Web & Android APK)
   useEffect(() => {
-    const loadWallpapers = async () => {
+    const loadSavedData = async () => {
       try {
+        let savedVenues = null;
+        let savedCards = null;
+        let savedWallpapers = null;
+
         if (Platform.OS === 'web') {
-          const saved = localStorage.getItem('tacit_wallpapers');
-          if (saved) setCustomWallpapers(JSON.parse(saved));
+          savedVenues = localStorage.getItem(STORAGE_KEYS.VENUES);
+          savedCards = localStorage.getItem(STORAGE_KEYS.CARDS);
+          savedWallpapers = localStorage.getItem(STORAGE_KEYS.WALLPAPERS);
         } else {
-          const saved = await AsyncStorage.getItem('tacit_wallpapers');
-          if (saved) setCustomWallpapers(JSON.parse(saved));
+          savedVenues = await AsyncStorage.getItem(STORAGE_KEYS.VENUES);
+          savedCards = await AsyncStorage.getItem(STORAGE_KEYS.CARDS);
+          savedWallpapers = await AsyncStorage.getItem(STORAGE_KEYS.WALLPAPERS);
         }
-      } catch (e) {}
+
+        if (savedVenues) {
+          const parsed = JSON.parse(savedVenues);
+          if (Array.isArray(parsed) && parsed.length > 0) setVenues(parsed);
+        }
+        if (savedCards) {
+          const parsed = JSON.parse(savedCards);
+          if (Array.isArray(parsed) && parsed.length > 0) setCardsData(parsed);
+        }
+        if (savedWallpapers) {
+          setCustomWallpapers(JSON.parse(savedWallpapers));
+        }
+      } catch (e) {
+        console.error('Error loading stored configurations:', e);
+      }
     };
-    loadWallpapers();
+    loadSavedData();
   }, []);
 
+  // 💾 SAVE VENUES HELPER
+  const persistVenues = async (updated: any[]) => {
+    setVenues(updated);
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(updated));
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(updated));
+      }
+    } catch (e) {}
+  };
+
+  // 💾 SAVE CARDS HELPER
+  const persistCards = async (updated: any[]) => {
+    setCardsData(updated);
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(updated));
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(updated));
+      }
+    } catch (e) {}
+  };
+
+  // 🎨 SAVE CUSTOM WALLPAPER
   const saveCustomWallpaper = async () => {
     if (!wallpaperInputUrl.trim()) return;
     const newUrl = wallpaperInputUrl.trim();
     const newWallpapers = { ...customWallpapers, [activeVenue.id]: newUrl };
-    
     setCustomWallpapers(newWallpapers);
-    
     try {
       if (Platform.OS === 'web') {
-        localStorage.setItem('tacit_wallpapers', JSON.stringify(newWallpapers));
+        localStorage.setItem(STORAGE_KEYS.WALLPAPERS, JSON.stringify(newWallpapers));
       } else {
-        await AsyncStorage.setItem('tacit_wallpapers', JSON.stringify(newWallpapers));
+        await AsyncStorage.setItem(STORAGE_KEYS.WALLPAPERS, JSON.stringify(newWallpapers));
       }
     } catch(e){}
     setWallpaperInputUrl('');
@@ -218,6 +300,7 @@ export const CounterConversationScreen: React.FC = () => {
 
   const getActiveCoverImage = () => customWallpapers[activeVenue.id] || activeVenue.coverImage;
 
+  // 🐼 MOCHI ROAMING PHYSICS
   useEffect(() => {
     let animId: number;
     const runPhysics = () => {
@@ -239,12 +322,113 @@ export const CounterConversationScreen: React.FC = () => {
     return () => cancelAnimationFrame(animId);
   }, [isMochiChatOpen, isCounterMode]);
 
-  const recognitionRef = useRef<any>(null);
+  // 🧠 AUTO-LEARN CONVERSATION FUNCTION
+  const learnNewConversationExchange = async (promptHeard: string, userReplyText: string) => {
+    if (!promptHeard || !userReplyText || promptHeard.length < 2) return;
+    
+    // Check if card already exists
+    const exists = cardsData.some(c => c.keywords.some(k => k.toLowerCase() === promptHeard.toLowerCase()));
+    if (exists) return;
+
+    let enLabels = userReplyText;
+    if (currentLang === 'zh-TW') {
+      enLabels = await realTranslate(userReplyText, 'zh-TW', 'en-US');
+    }
+
+    const newCard = {
+      id: `learned_${Date.now()}`,
+      stores: [activeVenue.id],
+      priority: 1, // High priority for learned situation context
+      keywords: [promptHeard.toLowerCase()],
+      options: [{
+        labels: { "zh-TW": userReplyText, "en-US": enLabels },
+        subLabels: { "zh-TW": "已儲存對話", "en-US": "Learned reply" },
+        tts: userReplyText
+      }]
+    };
+
+    const updated = [newCard, ...cardsData];
+    persistCards(updated);
+  };
+
+  // 🎙️ PROCESS RECOGNIZED TEXT (Triggers smart cards & translation)
+  const processRecognizedText = async (rawText: string, isFinal: boolean) => {
+    if (!rawText.trim()) return;
+
+    let translated = '';
+    if (isTranslateMode) {
+      setLiveStreamText('...');
+      if (isFinal) {
+        const targetLang = currentLang;
+        const sourceLang = currentLang === 'en-US' ? 'zh-TW' : 'en-US';
+        translated = await realTranslate(rawText, sourceLang, targetLang);
+        setLiveStreamText(translated);
+      }
+    } else {
+      setLiveStreamText(rawText);
+    }
+
+    const lowerRaw = rawText.toLowerCase();
+    const lowerTrans = translated.toLowerCase();
+    
+    // Prioritize active situation matches
+    const currentVenueCards = cardsData.filter(c => c.stores.includes(activeVenue.id) || c.stores.includes('*'));
+    const triggeredReplies: any[] = [];
+
+    currentVenueCards.forEach(card => {
+      if (card.keywords.some(kw => lowerRaw.includes(kw.toLowerCase()) || (translated && lowerTrans.includes(kw.toLowerCase())))) {
+        card.options.forEach((opt, idx) => {
+          triggeredReplies.push({
+            id: `${card.id}_${idx}`,
+            text: opt.labels[currentLang] || opt.labels['zh-TW'],
+            clerkText: opt.tts || opt.labels['zh-TW']
+          });
+        });
+      }
+    });
+
+    // 🤖 GEMINI AUTO TRIGGER: If no known keyword matches on final speech, call Gemini to generate dynamic replies
+    if (triggeredReplies.length === 0 && isFinal && rawText.length > 2) {
+      const dynamicAiReplies = await fetchGeminiDynamicReplies(rawText, activeVenue.name['zh-TW'] || activeVenue.short);
+      if (dynamicAiReplies && Array.isArray(dynamicAiReplies)) {
+        dynamicAiReplies.forEach((r, idx) => {
+          triggeredReplies.push({
+            id: `gemini_auto_${idx}`,
+            text: currentLang === 'en-US' ? r.en : r.zh,
+            clerkText: r.tts || r.zh
+          });
+        });
+      }
+    }
+
+    setSmartReplies(triggeredReplies);
+  };
+
+  // 🎙️ NATIVE SPEECH RECOGNITION (Android & iOS)
+  useSpeechRecognitionEvent('start', () => setIsLiveActive(true));
+  useSpeechRecognitionEvent('end', () => {
+    if (isLiveActive && Platform.OS !== 'web') {
+      try {
+        const targetLocale = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
+        ExpoSpeechRecognitionModule.start({ lang: targetLocale, interimResults: true, continuous: true });
+      } catch (e) {}
+    }
+  });
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results[0]?.transcript || '';
+    processRecognizedText(transcript, event.isFinal);
+  });
+  useSpeechRecognitionEvent('error', (event) => {
+    console.log('Speech Recognition Error:', event.error, event.message);
+  });
+
+  // 🌐 WEB SPEECH RECOGNITION FALLBACK (Safari & Chrome Web)
+  const webRecRef = useRef<any>(null);
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechRec) return; // Silent guard on iOS/Android to prevent crashes
-      
+      if (!SpeechRec) return;
+
       const rec = new SpeechRec();
       rec.continuous = true;
       rec.interimResults = true;
@@ -255,60 +439,56 @@ export const CounterConversationScreen: React.FC = () => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           interim += event.results[i][0].transcript;
         }
-        
-        const rawText = interim.trim();
-        if (rawText) {
-          let translated = '';
-          
-          if (isTranslateMode) {
-             setLiveStreamText(`...`);
-             if (event.results[event.results.length - 1].isFinal) {
-                const targetLang = currentLang; 
-                const sourceLang = currentLang === 'en-US' ? 'zh-TW' : 'en-US';
-                translated = await realTranslate(rawText, sourceLang, targetLang);
-                setLiveStreamText(translated);
-             }
-          } else {
-             setLiveStreamText(rawText);
-          }
-          
-          const lowerRaw = rawText.toLowerCase();
-          const lowerTrans = translated.toLowerCase();
-          const validCards = CARDS_DATA.filter(c => c.stores.includes('*') || c.stores.includes(activeVenue.id));
-          const triggeredReplies: any[] = [];
-          
-          validCards.forEach(card => {
-            if (card.keywords.some(kw => lowerRaw.includes(kw.toLowerCase()) || (translated && lowerTrans.includes(kw.toLowerCase())))) {
-              card.options.forEach((opt, idx) => {
-                triggeredReplies.push({
-                  id: `${card.id}_${idx}`,
-                  text: opt.labels[currentLang] || opt.labels['zh-TW'],
-                  clerkText: opt.tts || opt.labels['zh-TW']
-                });
-              });
-            }
-          });
-          setSmartReplies(triggeredReplies);
-        }
+        const isFinal = event.results[event.results.length - 1].isFinal;
+        processRecognizedText(interim.trim(), isFinal);
       };
-      recognitionRef.current = rec;
-      if (isLiveActive) { try { rec.start(); } catch (e) {} }
+
+      webRecRef.current = rec;
+      if (isLiveActive) {
+        try { rec.start(); } catch (e) {}
+      }
     }
   }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id]);
 
-  const toggleLiveListening = () => {
-    if (!isLiveActive) {
-      setIsLiveActive(true);
-      try { recognitionRef.current?.start(); } catch (e) {}
+  // 🎛️ TOGGLE LISTENING
+  const toggleLiveListening = async () => {
+    const nextState = !isLiveActive;
+
+    if (nextState) {
+      const targetLocale = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
+
+      if (Platform.OS !== 'web') {
+        const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        if (!result.granted) {
+          Alert.alert("Permission Required", "Please allow microphone access to use live transcription.");
+          return;
+        }
+        try {
+          await ExpoSpeechRecognitionModule.start({
+            lang: targetLocale,
+            interimResults: true,
+            continuous: true,
+          });
+          setIsLiveActive(true);
+        } catch (e) {
+          console.error('Failed to start native recognition:', e);
+        }
+      } else {
+        setIsLiveActive(true);
+        try { webRecRef.current?.start(); } catch (e) {}
+      }
     } else {
       setIsLiveActive(false);
-      try { recognitionRef.current?.stop(); } catch (e) {}
+      if (Platform.OS !== 'web') {
+        try { await ExpoSpeechRecognitionModule.stop(); } catch (e) {}
+      } else {
+        try { webRecRef.current?.stop(); } catch (e) {}
+      }
       setLiveStreamText('');
       setSmartReplies([]);
     }
   };
 
-  // 🔊 CRITICAL FIX: Cross-platform Text-To-Speech
   const speakSentence = (text: string, forcedLang?: string) => {
     const lang = forcedLang || currentLang;
     if (Platform.OS === 'web' && typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -329,52 +509,118 @@ export const CounterConversationScreen: React.FC = () => {
     setClerkMessage(displayToClerk);
     speakSentence(displayToClerk, speechLang);
     setSmartReplies([]); 
+
+    // If clerk had said something, auto-learn this reply
+    if (liveStreamText && liveStreamText.length > 2) {
+      learnNewConversationExchange(liveStreamText, displayToClerk);
+    }
   };
 
+  // 🛰️ COMPREHENSIVE GPS RESOLVER (Auto timeout 15s)
   const scanLiveLocation = async () => {
     setIsAutoDetecting(true);
     setNearbyVenueFound(null);
+    if (autoDetectTimerRef.current) clearTimeout(autoDetectTimerRef.current);
+
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') { setIsAutoDetecting(false); return; }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required for auto-detecting venues.');
+        setIsAutoDetecting(false);
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
       const { latitude, longitude } = loc.coords;
+
+      // 1. Android/Google Native Geocoding
+      const reverseList = await Location.reverseGeocodeAsync({ latitude, longitude });
+      let nativePlaceName = '';
+      if (reverseList && reverseList.length > 0) {
+        const addr = reverseList[0];
+        nativePlaceName = addr.name || addr.street || addr.district || '';
+      }
+
+      // 2. Query OSM for landmarks/university/library/cafes
+      const query = `[out:json][timeout:8];(
+        node(around:80,${latitude},${longitude})["name"];
+        way(around:80,${latitude},${longitude})["name"];
+      );out tags center 1;`;
       
-      const query = `[out:json][timeout:6];(node(around:20,${latitude},${longitude})["amenity"];node(around:20,${latitude},${longitude})["shop"];);out body 1;`;
       const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
       const data = await res.json();
-      
+
+      let detectedZh = '';
+      let detectedEn = '';
+      let detectedType = 'other';
+
       if (data?.elements?.length > 0) {
         const poi = data.elements[0];
-        const rawName = poi.tags['name:zh'] || poi.tags.name || 'Local Store';
-        const type = poi.tags['shop'] || poi.tags['amenity'];
+        detectedZh = poi.tags['name:zh'] || poi.tags.name || nativePlaceName;
+        detectedEn = poi.tags['name:en'] || poi.tags['int_name'] || '';
         
-        let translatedName = rawName;
-        if (isTranslateMode && currentLang === 'en-US') {
-           translatedName = await realTranslate(rawName, 'zh-TW', 'en-US');
-        }
-
-        let matchedCategory = 'other';
-        if (type === 'convenience' || type === 'supermarket') matchedCategory = 'cvs';
-        else if (type === 'cafe' || type === 'beverages') matchedCategory = 'drink';
-        else if (type === 'pharmacy' || type === 'clinic' || type === 'hospital') matchedCategory = 'pharmacy';
-        else if (type === 'hairdresser') matchedCategory = 'salon';
-
-        const baseStore = STORES_DATA.find(s => s.id === matchedCategory) || STORES_DATA[7];
-        const newDynamicVenue = {
-          id: matchedCategory, 
-          name: { 'zh-TW': rawName, 'en-US': translatedName }, 
-          short: translatedName.substring(0, 10),
-          emoji: '📍',
-          coverImage: baseStore.coverImage,
-          mochi: baseStore.mochi
-        };
-        
-        setNearbyVenueFound(newDynamicVenue);
-        setTimeout(() => setNearbyVenueFound((prev: any) => prev?.id === newDynamicVenue.id ? null : prev), 15000); 
+        const type = poi.tags['amenity'] || poi.tags['shop'] || poi.tags['building'];
+        if (type === 'convenience' || type === 'supermarket') detectedType = 'cvs';
+        else if (type === 'cafe' || type === 'beverages') detectedType = 'drink';
+        else if (type === 'pharmacy' || type === 'hospital' || type === 'clinic') detectedType = 'pharmacy';
+        else if (type === 'restaurant' || type === 'fast_food') detectedType = 'buffet';
+        else if (type === 'hairdresser') detectedType = 'salon';
+        else if (type === 'university' || type === 'library' || type === 'school') detectedType = 'university';
+      } else {
+        detectedZh = nativePlaceName || '目前位置';
       }
-    } catch (e) {}
-    setIsAutoDetecting(false);
+
+      if (!detectedEn && detectedZh) {
+        detectedEn = await realTranslate(detectedZh, 'zh-TW', 'en-US');
+      }
+      if (!detectedZh && detectedEn) {
+        detectedZh = await realTranslate(detectedEn, 'en-US', 'zh-TW');
+      }
+
+      const baseStore = venues.find(s => s.id === detectedType) || DEFAULT_STORES_DATA[7];
+      const newDynamicVenue = {
+        id: `loc_${Date.now()}`,
+        baseType: detectedType,
+        name: { 
+          'zh-TW': detectedZh, 
+          'en-US': detectedEn 
+        },
+        short: currentLang === 'zh-TW' ? detectedZh.substring(0, 10) : detectedEn.substring(0, 14),
+        emoji: detectedType === 'university' ? '🏫' : (detectedType === 'drink' ? '☕' : '📍'),
+        coverImage: baseStore.coverImage,
+        mochi: baseStore.mochi
+      };
+
+      setNearbyVenueFound(newDynamicVenue);
+
+      // Auto dismiss after 15 seconds if not added or accepted
+      autoDetectTimerRef.current = setTimeout(() => {
+        setNearbyVenueFound(null);
+      }, 15000);
+
+    } catch (e) {
+      console.error('GPS Detection Error:', e);
+    } finally {
+      setIsAutoDetecting(false);
+    }
+  };
+
+  // ➕ ADD DETECTED LOCATION AS A PERMANENT SITUATION
+  const handleAddLocationAsSituation = async (venueToAdd: any) => {
+    if (!venueToAdd) return;
+    if (autoDetectTimerRef.current) clearTimeout(autoDetectTimerRef.current);
+
+    const exists = venues.some(v => v.name['zh-TW'] === venueToAdd.name['zh-TW']);
+    let updatedVenues = [...venues];
+    
+    if (!exists) {
+      updatedVenues = [venueToAdd, ...venues];
+      await persistVenues(updatedVenues);
+    }
+
+    setActiveVenue(venueToAdd);
+    setNearbyVenueFound(null);
+    Alert.alert('已加入場景 (Added)', `${venueToAdd.name[currentLang] || venueToAdd.name['zh-TW']} 已儲存至場景選單。`);
   };
 
   const handleMochiChatSubmit = async () => {
@@ -400,9 +646,27 @@ export const CounterConversationScreen: React.FC = () => {
       }
       setClerkMessage(finalSpeech);
       speakSentence(finalSpeech, speechLang);
+      
+      // Auto-learn this custom text response for future encounters
+      if (liveStreamText && liveStreamText.length > 2) {
+        learnNewConversationExchange(liveStreamText, finalSpeech);
+      }
+
       setMochiInputText('');
       setIsTypeToClerkOpen(false);
     }
+  };
+
+  // 🏷️ GET PRIORITIZED QUESTIONS (Specific Situation items first, General greeting & thanks at bottom)
+  const getPrioritizedCards = () => {
+    const valid = cardsData.filter(c => c.stores.includes(activeVenue.id) || (activeVenue.baseType && c.stores.includes(activeVenue.baseType)) || c.stores.includes('*'));
+    
+    // Sort ascending: priority 1 (Specific answers) -> priority 2 (Payment/bags) -> priority 3 (Greetings/yes/no/thanks)
+    return valid.sort((a, b) => {
+      const pA = a.priority || 2;
+      const pB = b.priority || 2;
+      return pA - pB;
+    });
   };
 
   const activeBotMedia = isLiveActive ? LOCAL_BOT_ASSETS.listen : (activeVenue.mochi || LOCAL_BOT_ASSETS.floating);
@@ -411,6 +675,7 @@ export const CounterConversationScreen: React.FC = () => {
     return (
       <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]} onLayout={(e) => { containerSizeRef.current = e.nativeEvent.layout; }}>
         
+        {/* Top Navigation */}
         <View style={styles.homeHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={{ fontSize: 18 }}>💬</Text>
@@ -430,19 +695,36 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* 🛰️ SATELLITE PILL: DIRECTLY UNDER THE SATELLITE ICON WITH "ADD SITUATION" */}
         {nearbyVenueFound && (
-          <View style={{ width: '100%', alignItems: 'flex-end', marginBottom: 12, paddingRight: 4, zIndex: 50 }}>
-            <TouchableOpacity style={styles.nearbyPopupPill} onPress={() => { setActiveVenue(nearbyVenueFound); setNearbyVenueFound(null); }}>
-              <View style={styles.nearbyPulseDot} />
-              <Text style={styles.nearbyPopupText}>{currentLang === 'zh-TW' ? '附近偵測: ' : 'Nearby: '}{nearbyVenueFound.name[currentLang] || nearbyVenueFound.name['zh-TW']} 〉</Text>
-            </TouchableOpacity>
+          <View style={styles.satelliteDropdownContainer}>
+            <View style={styles.satelliteResultCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={styles.nearbyPulseDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.satelliteFoundLabel}>{currentLang === 'zh-TW' ? '目前定位地點' : 'Detected Venue'}</Text>
+                  <Text style={styles.satelliteFoundName} numberOfLines={1}>
+                    {nearbyVenueFound.name[currentLang] || nearbyVenueFound.name['zh-TW']}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity style={styles.addSituationPillBtn} onPress={() => handleAddLocationAsSituation(nearbyVenueFound)}>
+                  <Text style={styles.addSituationPillText}>{currentLang === 'zh-TW' ? '＋ 加為場景' : '＋ Add'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.dismissPillBtn} onPress={() => setNearbyVenueFound(null)}>
+                  <Text style={{ color: THEME.textMuted, fontSize: 14 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         )}
 
         <ScrollView style={styles.mainScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           <View style={styles.greetingSection}>
             <Text style={styles.greetingTitle}>{currentLang === 'zh-TW' ? '午安' : 'Good Afternoon'}</Text>
-            <Text style={styles.greetingSub}>{currentLang === 'zh-TW' ? '今天要去哪裡？' : 'Where are you heading today?'}</Text>
+            <Text style={styles.greetingSub}>{currentLang === 'zh-TW' ? '選擇當前場景快速回答：' : 'Select situation for fast answers:'}</Text>
           </View>
 
           <View style={styles.heroCard}>
@@ -457,12 +739,12 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
 
           <View style={styles.carouselSection}>
-            <Text style={styles.carouselTitle}>{currentLang === 'zh-TW' ? '換一種櫃檯' : 'Change Location'}</Text>
+            <Text style={styles.carouselTitle}>{currentLang === 'zh-TW' ? '切換所有場景' : 'All Situations'}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselScroll}>
               {venues.map((v) => (
                 <TouchableOpacity key={v.id} style={styles.carouselItem} onPress={() => setActiveVenue(v)}>
                   <Image source={{ uri: customWallpapers[v.id] || v.coverImage }} style={[styles.carouselItemImg, activeVenue.id === v.id && styles.carouselItemImgActive]} />
-                  <Text style={[styles.carouselItemText, activeVenue.id === v.id && { color: THEME.orange, fontWeight: 'bold' }]}>{v.short}</Text>
+                  <Text style={[styles.carouselItemText, activeVenue.id === v.id && { color: THEME.orange, fontWeight: 'bold' }]} numberOfLines={1}>{v.short}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -475,6 +757,7 @@ export const CounterConversationScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
+        {/* Modal: Settings */}
         <Modal visible={isSettingsOpen} transparent animationType="fade">
           <View style={styles.modalBackdrop}>
             <ScrollView style={styles.settingsModalCardFull} contentContainerStyle={{padding: 24}} showsVerticalScrollIndicator={false}>
@@ -527,6 +810,7 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         </Modal>
 
+        {/* Modal: Mochi Chat */}
         <Modal visible={isMochiChatOpen} transparent animationType="fade">
           <View style={styles.modalBackdrop}>
             <View style={styles.mochiChatCard}>
@@ -569,6 +853,7 @@ export const CounterConversationScreen: React.FC = () => {
   return (
     <View style={styles.screen}>
       
+      {/* 🟠 Clerk-Facing Half (Rotated 180 deg for person opposite counter) */}
       <View style={[styles.splitTop, { paddingTop: insets.bottom }]}>
         <View style={styles.splitTopInner}>
           <Text style={[styles.clerkFacingSub, {fontSize: 20 * fontScale}]}>{currentLang === 'zh-TW' ? '您好' : 'Hello'}</Text>
@@ -595,6 +880,7 @@ export const CounterConversationScreen: React.FC = () => {
 
       <View style={styles.splitDivider} />
 
+      {/* ⚫ User-Facing Half (Live Transcription & Top-Priority Smart Replies) */}
       <View style={[styles.splitBottom, { paddingBottom: insets.bottom }]}>
         <View style={styles.bottomHeaderGroup}>
            <View style={styles.bottomHeader}>
@@ -616,6 +902,7 @@ export const CounterConversationScreen: React.FC = () => {
               </View>
            </View>
 
+           {/* 💡 1-Tap Triggered Replies (Contextual matches swap directly up here) */}
            {smartReplies.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 10}}>
                  {smartReplies.map((reply: any) => (
@@ -626,16 +913,18 @@ export const CounterConversationScreen: React.FC = () => {
               </ScrollView>
            )}
 
+           {/* 🎙️ LIVE SUBTITLE TRANSCRIBE BOX */}
            {liveStreamText ? (
              <View style={styles.liveSubtitleBox}>
                {isTranslateMode && currentLang === 'en-US' && <Text style={{fontSize: 10, color: THEME.translateAccent, marginBottom: 2}}>A/文 Translated</Text>}
-               <Text style={[styles.liveSubtitleText, {fontSize: 15 * fontScale}]}>"{liveStreamText}"</Text>
+               <Text style={[styles.liveSubtitleText, {fontSize: 16 * fontScale}]}>"{liveStreamText}"</Text>
              </View>
            ) : null}
         </View>
 
+        {/* 📋 PRIORITIZED CONVERSATION QUESTIONS LIST */}
         <ScrollView style={styles.questionsList} contentContainerStyle={{ paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
-          {CARDS_DATA.filter(c => c.stores.includes('*') || c.stores.includes(activeVenue.id)).map((card) => (
+          {getPrioritizedCards().map((card) => (
              card.options.map((opt, idx) => (
               <TouchableOpacity key={`${card.id}_${idx}`} style={styles.questionRow} onPress={() => handleSelectOption({ clerkText: opt.tts || opt.labels['zh-TW'] })}>
                 <View style={styles.questionTextCol}>
@@ -670,6 +959,7 @@ export const CounterConversationScreen: React.FC = () => {
         </View>
       </View>
 
+      {/* Modal: Type to Clerk */}
       <Modal visible={isTypeToClerkOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.mochiModalCard}>
@@ -695,6 +985,7 @@ export const CounterConversationScreen: React.FC = () => {
         </View>
       </Modal>
 
+      {/* Modal: Mochi AI Chat */}
       <Modal visible={isMochiChatOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.mochiChatCard}>
@@ -731,6 +1022,7 @@ export const CounterConversationScreen: React.FC = () => {
         </View>
       </Modal>
 
+      {/* Modal: SOS Emergency */}
       <Modal visible={isSOSOpen} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
           <View style={{ width: '90%', maxWidth: 460 }}>
@@ -766,22 +1058,28 @@ export const CounterConversationScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: THEME.bg },
-  container: { width: '100%', maxWidth: 520, flex: 1, paddingHorizontal: 16, alignSelf: 'center' },
-  homeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, marginTop: 10, paddingHorizontal: 16 },
+  homeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, marginTop: 10, paddingHorizontal: 16 },
   homeTitleLogo: { fontSize: 18, fontWeight: '700', color: THEME.text, fontFamily: THEME.fontFamily },
   topRightControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBtn: { padding: 6, borderRadius: 8, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   iconText: { fontSize: 18, color: THEME.textMuted, fontWeight: '700' },
-  nearbyPopupPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(52, 199, 89, 0.15)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: THEME.success },
-  nearbyPulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: THEME.success, marginRight: 8 },
-  nearbyPopupText: { color: THEME.success, fontSize: 12, fontWeight: '700', fontFamily: THEME.fontFamily },
+  
+  // 🛰️ Satellite Detection Dropdown directly underneath the top bar
+  satelliteDropdownContainer: { paddingHorizontal: 16, marginBottom: 12, zIndex: 100 },
+  satelliteResultCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: THEME.surfaceLight, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: THEME.success },
+  satelliteFoundLabel: { fontSize: 11, color: THEME.textMuted, fontWeight: '600' },
+  satelliteFoundName: { fontSize: 14, color: THEME.text, fontWeight: '700', marginTop: 1 },
+  nearbyPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: THEME.success },
+  addSituationPillBtn: { backgroundColor: THEME.orange, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  addSituationPillText: { color: '#000', fontSize: 12, fontWeight: '700' },
+  dismissPillBtn: { paddingHorizontal: 8, paddingVertical: 6, justifyContent: 'center', alignItems: 'center' },
   
   mainScroll: { flex: 1 },
-  greetingSection: { marginBottom: 24, marginTop: 12, paddingHorizontal: 16 },
+  greetingSection: { marginBottom: 20, marginTop: 8, paddingHorizontal: 16 },
   greetingTitle: { fontSize: 32, fontWeight: '800', color: THEME.text, marginBottom: 4, fontFamily: THEME.fontFamily },
-  greetingSub: { fontSize: 18, fontWeight: '500', color: THEME.textMuted, fontFamily: THEME.fontFamily },
+  greetingSub: { fontSize: 16, fontWeight: '500', color: THEME.textMuted, fontFamily: THEME.fontFamily },
   
-  heroCard: { backgroundColor: THEME.surface, borderRadius: 24, overflow: 'hidden', marginBottom: 28, borderWidth: 1, borderColor: THEME.border, alignItems: 'center', marginHorizontal: 16 },
+  heroCard: { backgroundColor: THEME.surface, borderRadius: 24, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: THEME.border, alignItems: 'center', marginHorizontal: 16 },
   heroImageCentered: { width: '100%', height: 190, resizeMode: 'cover' },
   heroContent: { padding: 20, width: '100%' },
   heroTitle: { fontSize: 24, fontWeight: '700', color: THEME.text, marginBottom: 14, fontFamily: THEME.fontFamily },
@@ -795,7 +1093,7 @@ const styles = StyleSheet.create({
   carouselItem: { alignItems: 'center', width: 80 },
   carouselItemImg: { width: 72, height: 72, borderRadius: 16, marginBottom: 8, borderWidth: 2, borderColor: 'transparent' },
   carouselItemImgActive: { borderColor: THEME.orange },
-  carouselItemText: { fontSize: 12, color: THEME.textMuted, fontWeight: '500', fontFamily: THEME.fontFamily },
+  carouselItemText: { fontSize: 12, color: THEME.textMuted, fontWeight: '500', fontFamily: THEME.fontFamily, textAlign: 'center' },
   
   splitTop: { flex: 1, backgroundColor: THEME.orange, justifyContent: 'center', alignItems: 'center' },
   splitTopInner: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', padding: 24, transform: [{ rotate: '180deg' }] },
@@ -817,10 +1115,10 @@ const styles = StyleSheet.create({
   liveStatusDot: { fontSize: 10 },
   liveStatusText: { color: THEME.text, fontSize: 14, fontWeight: '600', fontFamily: THEME.fontFamily },
   
-  liveSubtitleBox: { backgroundColor: THEME.surfaceLight, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: THEME.success },
-  liveSubtitleText: { color: THEME.success, fontWeight: '600', fontFamily: THEME.fontFamily },
-  smartReplyBtn: { backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
-  smartReplyBtnText: { color: THEME.text, fontSize: 12, fontWeight: '600' },
+  liveSubtitleBox: { backgroundColor: THEME.surfaceLight, padding: 12, borderRadius: 10, borderWidth: 1.5, borderColor: THEME.success },
+  liveSubtitleText: { color: THEME.success, fontWeight: '700', fontFamily: THEME.fontFamily },
+  smartReplyBtn: { backgroundColor: THEME.surface, borderWidth: 1.5, borderColor: THEME.orange, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
+  smartReplyBtnText: { color: THEME.text, fontSize: 13, fontWeight: '700' },
   questionsList: { flex: 1 },
   questionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: THEME.border },
   questionTextCol: { flex: 1, gap: 4 },
@@ -842,7 +1140,6 @@ const styles = StyleSheet.create({
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 },
   settingsModalTitle: { fontSize: 20, fontWeight: '700', color: THEME.text, fontFamily: THEME.fontFamily },
   settingsSectionTitle: { fontSize: 18, fontWeight: '700', color: THEME.text, marginBottom: 12, marginTop: 12 },
-  settingListItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: THEME.border },
   fontBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: THEME.border, alignItems: 'center' },
   fontBtnText: { color: THEME.text, fontSize: 16, fontWeight: '600' },
   

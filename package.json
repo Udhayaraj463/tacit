@@ -26,6 +26,7 @@
     "expo-haptics": "~13.0.1",
     "expo-location": "~17.0.1",
     "expo-speech": "~12.0.2",
+    "expo-speech-recognition": "^58.0.1",
     "expo-status-bar": "~1.12.1",
     "gsap": "^3.15.0",
     "lucide-react": "^1.68.0",
