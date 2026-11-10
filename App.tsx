@@ -4,6 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 // Notice the path matches your exact folder structure
 import { CounterConversationScreen } from './claude src/src/screens/CounterConversationScreen';
 
+const API_BASE_URL = 'https://tacit-77cd.onrender.com';
+
 export default function App() {
   return (
     <SafeAreaProvider>
