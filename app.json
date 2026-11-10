@@ -1,25 +1,32 @@
 {
   "expo": {
-    "name": "tacit-app",
+    "name": "Tacit 默契",
     "slug": "tacit-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "ios": {
-      "supportsTablet": true
+    "scheme": "tacit",
+    "icon": "./assets/splash.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a1a"
     },
     "android": {
+      "package": "com.tacit.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+        "foregroundImage": "./assets/splash.png",
+        "backgroundColor": "#1a1a1a"
+      }
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "ios": {
+      "bundleIdentifier": "com.tacit.app"
+    },
+    "owner": "lets-go-team",
+    "extra": {
+      "eas": {
+        "projectId": "b4026932-4655-4b54-8336-422709020ced"
+      }
     }
   }
 }

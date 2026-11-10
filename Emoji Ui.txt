@@ -1,0 +1,1747 @@
+// @ts-nocheck
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  ScrollView, 
+  Modal,
+  ActivityIndicator,
+  Image,
+  TextInput
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import BallStudy from '../../components/ui/ball-study';
+
+export type SupportedLang = 'en-US' | 'zh-TW' | 'ta-IN' | 'ja-JP';
+
+interface LangMeta {
+  code: SupportedLang;
+  name: string;
+  short: string;
+  recognitionCode: string;
+  ttsLang: string;
+}
+
+export const LANGUAGE_LIST: LangMeta[] = [
+  { code: 'en-US', name: 'English (US)', short: 'English', recognitionCode: 'en-US', ttsLang: 'en-US' },
+  { code: 'zh-TW', name: '繁體中文 (Traditional Chinese)', short: '中文', recognitionCode: 'zh-TW', ttsLang: 'zh-TW' },
+  { code: 'ta-IN', name: 'தமிழ் (Tamil)', short: 'தமிழ்', recognitionCode: 'ta-IN', ttsLang: 'ta-IN' },
+  { code: 'ja-JP', name: '日本語 (Japanese)', short: '日本語', recognitionCode: 'ja-JP', ttsLang: 'ja-JP' }
+];
+
+export interface ActionOption {
+  id: string;
+  labelUser: string;
+  labelClerk: string;
+  payloadType?: string;
+}
+
+export interface VenueOptionItem {
+  id: string;
+  category?: string;
+  labels: Record<SupportedLang, string>;
+  clerkText: Record<SupportedLang, string>;
+}
+
+export interface VenueData {
+  id: string;
+  nameKey: string;
+  short: string;
+  emoji?: string;
+  iconImage: any;
+  bgImage: any;
+  accent: string;
+  vibeQuote?: string;
+  options: VenueOptionItem[];
+}
+
+interface SOSProfile {
+  name: string;
+  blood: string;
+  allergies: string;
+  contact: string;
+  note: string;
+}
+
+const DEFAULT_SOS: SOSProfile = {
+  name: 'Udhayaraj (Raj)',
+  blood: 'O+',
+  allergies: 'None',
+  contact: '+886 900 000 000',
+  note: 'I am having a medical emergency and cannot speak. Please read my screen.'
+};
+
+const COLOR_SWATCHES = ['#0A84FF', '#FF8A1F', '#30D158', '#FF453A', '#BF5AF2', '#5E5CE6', '#FFD60A', '#00C7BE'];
+
+const UI_STRINGS: Record<SupportedLang, Record<string, string>> = {
+  'en-US': {
+    clerkViewTag: 'CLERK VIEW • 180° FLIPPED',
+    standby: 'CHILLING',
+    live: 'LISTENING LIVE',
+    startLive: '🎙 Wake Up Mochi (Start Live)',
+    endLive: '🔴 Pause Listening',
+    understoodIntent: 'Mochi Heard & Decoded:',
+    quickActions: 'Smart Replies',
+    facingClerkPrefix: 'Speaks:',
+    languages: '⚙ Studio & Lang',
+    floatingBubblesTitle: 'Instant Reactions',
+    welcomeDefault: 'Hello! 👋',
+    addLocationModalTitle: '✨ Discover or Add Place',
+    addLocationModalSub: 'Type any spot ("Library", "Bubble Tea", "Night Market") and Mochi will craft your cards!',
+    addLocationPlaceholder: 'e.g. University Library Counter',
+    addLocationAnalyzeBtn: '✨ Craft Cards with AI',
+    addLocationAnalyzingBtn: 'Mochi is crafting cards...',
+    cancel: 'Close',
+    reset: '↺ Reset',
+    liveLocationText: 'Active Spot:',
+    typePlaceholder: 'Type anything to translate & speak...',
+    introMsg: 'Hi there! I communicate using this app. Please read my screen.',
+    attentionBtn: '🔔 Get Attention',
+    scanGpsBtn: '🛰️ Scan Here',
+    editVenueBtn: '🎨 Edit Spot',
+    sosBtn: 'SOS',
+    clerkTypeBtn: '⌨️ Clerk: Tap to Type Reply',
+    clerkTypePlaceholder: 'Type your reply to the user here...',
+    offlineNotice: '⚠️ Offline Mode — Using Saved Memory',
+    sosTitle: 'MEDICAL EMERGENCY',
+    sosSpeak: '🔊 Announce Emergency Aloud',
+    clerkSend: 'Send Reply',
+    translatingText: 'Mochi is translating...'
+  },
+  'zh-TW': {
+    clerkViewTag: '櫃台人員視角 • 180° 翻轉',
+    standby: '待命中',
+    live: '即時聆聽中',
+    startLive: '🎙 喚醒默契 (啟動聆聽)',
+    endLive: '🔴 暫停聆聽',
+    understoodIntent: '默契已聽懂對方：',
+    quickActions: '智慧快選回應',
+    facingClerkPrefix: '發音：',
+    languages: '⚙ 設定與自訂',
+    floatingBubblesTitle: '即時心情反應',
+    welcomeDefault: '您好！👋',
+    addLocationModalTitle: '✨ 新增或探索地點',
+    addLocationModalSub: '輸入任何地點（如「圖書館」、「飲料店」），默契夥伴會立刻幫你準備專屬卡片！',
+    addLocationPlaceholder: '例如：大學圖書館借書櫃台',
+    addLocationAnalyzeBtn: '✨ AI 魔法生成卡片',
+    addLocationAnalyzingBtn: '默契正在生成卡片...',
+    cancel: '關閉',
+    reset: '↺ 重置',
+    liveLocationText: '目前場景：',
+    typePlaceholder: '輸入任何想說的話（自動翻譯發音）...',
+    introMsg: '您好！我透過這個螢幕溝通，請看我的畫面。',
+    attentionBtn: '🔔 禮貌提醒',
+    scanGpsBtn: '🛰️ 偵測位置',
+    editVenueBtn: '🎨 編輯場景',
+    sosBtn: 'SOS',
+    clerkTypeBtn: '⌨️ 店員請點此打字回覆',
+    clerkTypePlaceholder: '請輸入您想對用戶說的話...',
+    offlineNotice: '⚠️ 離線模式 — 使用本地記憶庫',
+    sosTitle: '緊急醫療求助',
+    sosSpeak: '🔊 播放緊急語音求助',
+    clerkSend: '傳送回覆',
+    translatingText: '默契翻譯中...'
+  },
+  'ta-IN': {
+    clerkViewTag: 'ஊழியர் பார்வை • 180° தலைகீழ்',
+    standby: 'காத்திருப்பு',
+    live: 'நேரலையில் கேட்கிறது',
+    startLive: '🎙 மோச்சியை எழுப்பு (Live)',
+    endLive: '🔴 நிறுத்து',
+    understoodIntent: 'மோச்சி புரிந்துகொண்டது:',
+    quickActions: 'உடனடி பதில்கள்',
+    facingClerkPrefix: 'குரல்:',
+    languages: '⚙ அமைப்புகள்',
+    floatingBubblesTitle: 'உடனடி உணர்வுகள்',
+    welcomeDefault: 'வணக்கம்! 👋',
+    addLocationModalTitle: '✨ புதிய இடத்தை சேர்க்கவும்',
+    addLocationModalSub: 'எந்த இடத்தையும் உள்ளிடவும் ("நூலகம்", "கடை"), AI அட்டைகளை உருவாக்கும்!',
+    addLocationPlaceholder: 'எ.கா. நூலக கவுண்டர்',
+    addLocationAnalyzeBtn: '✨ AI அட்டைகளை உருவாக்கு',
+    addLocationAnalyzingBtn: 'உருவாக்குகிறது...',
+    cancel: 'மூடு',
+    reset: '↺ மீட்டமை',
+    liveLocationText: 'தற்போதைய இடம்:',
+    typePlaceholder: 'செய்தியை தட்டச்சு செய்க...',
+    introMsg: 'வணக்கம்! நான் பேச இந்த செயலியை பயன்படுத்துகிறேன்.',
+    attentionBtn: '🔔 கவனம்',
+    scanGpsBtn: '🛰️ இடம் தேடு',
+    editVenueBtn: '🎨 திருத்து',
+    sosBtn: 'SOS',
+    clerkTypeBtn: '⌨️ தட்டச்சு செய்து பதிலளிக்கவும்',
+    clerkTypePlaceholder: 'உங்கள் பதிலை இங்கே தட்டச்சு செய்க...',
+    offlineNotice: '⚠️ ஆஃப்லைன் முறை',
+    sosTitle: 'மருத்துவ அவசரம்',
+    sosSpeak: '🔊 அவசர ஆடியோவை இயக்கு',
+    clerkSend: 'அனுப்பு',
+    translatingText: 'மொழிபெயர்க்கிறது...'
+  },
+  'ja-JP': {
+    clerkViewTag: 'スタッフ視角 • 180° 反転',
+    standby: 'スタンバイ',
+    live: 'ライブ聞き取り中',
+    startLive: '🎙 モチを起こす (ライブ開始)',
+    endLive: '🔴 一時停止',
+    understoodIntent: 'モチの聞き取り結果：',
+    quickActions: 'スマート返答',
+    facingClerkPrefix: '音声：',
+    languages: '⚙ 設定・カスタム',
+    floatingBubblesTitle: 'クイックリアクション',
+    welcomeDefault: 'こんにちは！👋',
+    addLocationModalTitle: '✨ 新しい場所を追加',
+    addLocationModalSub: '場所を入力すると（例：「図書館」「カフェ」）、AIが専用カードを作ります！',
+    addLocationPlaceholder: '例：図書館の貸出カウンター',
+    addLocationAnalyzeBtn: '✨ AIでカードを作成',
+    addLocationAnalyzingBtn: 'モチがカードを作成中...',
+    cancel: '閉じる',
+    reset: '↺ リセット',
+    liveLocationText: '現在のスポット：',
+    typePlaceholder: 'メッセージを入力（自動翻訳＆発音）...',
+    introMsg: 'こんにちは！画面の文字でコミュニケーションしています。',
+    attentionBtn: '🔔 呼びかけ',
+    scanGpsBtn: '🛰️ 現在地スキャン',
+    editVenueBtn: '🎨 編集',
+    sosBtn: 'SOS',
+    clerkTypeBtn: '⌨️ スタッフ用：タップして文字入力',
+    clerkTypePlaceholder: 'こちらに返答を入力してください...',
+    offlineNotice: '⚠️ オフラインモード',
+    sosTitle: '緊急医療サポート',
+    sosSpeak: '🔊 緊急音声を再生',
+    clerkSend: '送信する',
+    translatingText: '翻訳中...'
+  }
+};
+
+interface ChitChatBubble {
+  id: string;
+  labels: Record<SupportedLang, string>;
+  clerkText: Record<SupportedLang, string>;
+  isCore?: boolean;
+  followUps?: ChitChatBubble[];
+}
+
+const CORE_REACTIONS: ChitChatBubble[] = [
+  {
+    id: 'core_yes',
+    isCore: true,
+    labels: { 'en-US': 'Yes ✅', 'zh-TW': '是 / 好 ✅', 'ta-IN': 'ஆம் ✅', 'ja-JP': 'はい ✅' },
+    clerkText: { 'en-US': 'Yes, please!', 'zh-TW': '是的，麻煩您了！', 'ta-IN': 'ஆம், தயவுசெய்து!', 'ja-JP': 'はい、お願いします！' }
+  },
+  {
+    id: 'core_no',
+    isCore: true,
+    labels: { 'en-US': 'No thanks ❌', 'zh-TW': '不用謝謝 ❌', 'ta-IN': 'இல்லை நன்றி ❌', 'ja-JP': '大丈夫です ❌' },
+    clerkText: { 'en-US': 'No, thank you!', 'zh-TW': '不用了，謝謝您！', 'ta-IN': 'இல்லை, நன்றி!', 'ja-JP': 'いいえ、結構です！' }
+  },
+  {
+    id: 'core_thanks',
+    isCore: true,
+    labels: { 'en-US': 'Thank you 🙏', 'zh-TW': '非常感謝 🙏', 'ta-IN': 'மிக்க நன்றி 🙏', 'ja-JP': 'ありがとう 🙏' },
+    clerkText: { 'en-US': 'Thank you so much! Have a great day.', 'zh-TW': '非常謝謝您！祝您有美好的一天。', 'ta-IN': 'மிக்க நன்றி!', 'ja-JP': 'ありがとうございます！良い一日を。' }
+  }
+];
+
+const CHIT_CHAT_SYSTEM: ChitChatBubble[] = [
+  ...CORE_REACTIONS,
+  {
+    id: 'cc_noisy',
+    labels: { 'en-US': 'Too Loud 🔊', 'zh-TW': '環境太吵 🔊', 'ta-IN': 'அதிக சத்தம் 🔊', 'ja-JP': '周りが騒がしい 🔊' },
+    clerkText: { 
+      'en-US': 'It is a bit loud here! Could you tap "Type Reply" on my screen to type your message?', 
+      'zh-TW': '這裡稍微有點吵，我的麥克風聽不清楚。可以請您點一下畫面上的「打字回覆」輸入文字嗎？謝謝！', 
+      'ta-IN': 'இங்கு சத்தம் அதிகமாக உள்ளது. திரையில் தட்டச்சு செய்ய முடியுமா?', 
+      'ja-JP': '周りが少し騒がしいので、画面の「タップして文字入力」から入力していただけますか？' 
+    }
+  },
+  {
+    id: 'cc_speech_issue',
+    labels: { 'en-US': 'AAC User 🗣️✨', 'zh-TW': '看螢幕溝通 🗣️✨', 'ta-IN': 'திரையைப் பார்க்கவும் 🗣️✨', 'ja-JP': '画面で会話 🗣️✨' },
+    clerkText: { 'en-US': 'I am non-verbal and use this app to chat. Please read my screen!', 'zh-TW': '我不方便說話，都是透過這個可愛的助理跟您溝通喔！請看我的螢幕。', 'ta-IN': 'நான் பேச இந்த செயலியைப் பயன்படுத்துகிறேன்.', 'ja-JP': '話すことができないため、この画面を使って会話しています！' }
+  },
+  {
+    id: 'cc_fine',
+    labels: { 'en-US': 'Feeling great 😄', 'zh-TW': '心情超好 😄', 'ta-IN': 'மிக நன்று 😄', 'ja-JP': '最高に元気 😄' },
+    clerkText: { 'en-US': "I'm doing awesome today, thank you for asking!", 'zh-TW': '我今天狀態超棒的，謝謝您的關心！', 'ta-IN': 'நான் இன்று மிக நன்றாக இருக்கிறேன்!', 'ja-JP': '今日はとても元気です！気にかけてくれてありがとうございます！' }
+  },
+  {
+    id: 'cc_bad',
+    labels: { 'en-US': 'Unwell 😷', 'zh-TW': '身體不適 😷', 'ta-IN': 'உடல்நிலை சரியில்லை 😷', 'ja-JP': '体調不良 😷' },
+    clerkText: { 'en-US': 'I am not feeling well right now and need a little help.', 'zh-TW': '我現在身體不太舒服，需要一點協助。', 'ta-IN': 'எனக்கு உடல்நிலை சரியில்லை.', 'ja-JP': '今あまり体調が良くなくて、少し助けが必要です。' },
+    followUps: [
+      {
+        id: 'fu_sick',
+        labels: { 'en-US': 'Fever & Pain 🤒', 'zh-TW': '發燒與劇痛 🤒', 'ta-IN': 'காய்ச்சல் & வலி 🤒', 'ja-JP': '発熱と痛み 🤒' },
+        clerkText: { 'en-US': 'I have a fever and strong body pain.', 'zh-TW': '我有點發燒而且身體很痛。', 'ta-IN': 'கடுமையான காய்ச்சல் மற்றும் வலி உள்ளது.', 'ja-JP': '熱があって体も強く痛みます。' }
+      },
+      {
+        id: 'fu_tired',
+        labels: { 'en-US': 'Dizzy & Weak 💫', 'zh-TW': '頭暈虛弱 💫', 'ta-IN': 'தலைச்சுற்றல் 💫', 'ja-JP': 'めまい 💫' },
+        clerkText: { 'en-US': 'I feel very dizzy and need to sit down.', 'zh-TW': '我覺得很頭暈，需要坐下來休息一下。', 'ta-IN': 'எனக்கு தலைச்சுற்றலாக உள்ளது.', 'ja-JP': 'めまいがするので少し座って休みたいです。' }
+      }
+    ]
+  },
+  {
+    id: 'cc_busy',
+    labels: { 'en-US': 'In a rush ⚡', 'zh-TW': '趕時間 ⚡', 'ta-IN': 'அவசரம் ⚡', 'ja-JP': '急ぎです ⚡' },
+    clerkText: { 'en-US': 'I am in a bit of a rush, could we do this quickly? Thank you!', 'zh-TW': '我現在稍微有點趕時間，麻煩幫我快速處理，非常謝謝您！', 'ta-IN': 'நான் थोड़ा அவசரமாக செல்ல வேண்டும்.', 'ja-JP': '少し急いでおりますので、手早くお願いできると助かります！' }
+  }
+];
+
+const DEFAULT_VENUES: VenueData[] = [
+  {
+    id: 'hospital',
+    nameKey: 'Hospital & Clinic',
+    short: 'Hospital',
+    emoji: '🏥',
+    iconImage: require('../../Icons/Hospital icon.webp'),
+    bgImage: require('../../Icons/Hospital icon.webp'),
+    accent: '#0A84FF',
+    vibeQuote: 'Take a deep breath. Mochi has your medical cards ready! 💙',
+    options: [
+      { id: 'h_reg_1', category: 'reg', labels: { 'en-US': '🪪 Here is my Health ID Card', 'zh-TW': '🪪 這是我的健保卡與證件', 'ta-IN': '🪪 மருத்துவ அட்டை இதோ', 'ja-JP': '🪪 健康保険証を提示します' }, clerkText: { 'en-US': 'Here is my Health Insurance Card and ID.', 'zh-TW': '您好，這是我的健保卡與身分證件。', 'ta-IN': 'மருத்துவக் காப்பீட்டு அட்டை இதோ.', 'ja-JP': '健康保険証と身分証を提出いたします。' } },
+      { id: 'h_triage_1', category: 'triage', labels: { 'en-US': '🚨 Severe pain / Need urgent help', 'zh-TW': '🚨 劇烈疼痛 / 需要緊急協助', 'ta-IN': '🚨 கடுமையான வலி / அவசரம்', 'ja-JP': '🚨 激しい痛み・緊急処置希望' }, clerkText: { 'en-US': 'I am experiencing severe pain and need urgent medical evaluation.', 'zh-TW': '我現在感到劇烈疼痛，需要緊急醫療評估與協助。', 'ta-IN': 'மார்பு வலி மற்றும் மூச்சு திணறல் அதிகமாக உள்ளது.', 'ja-JP': '激しい痛みがあり、緊急の診察をお願いします。' } },
+      { id: 'h_dental_1', category: 'dental', labels: { 'en-US': '🦷 Toothache / Dental checkup', 'zh-TW': '🦷 牙齒痛 / 預約牙科檢查', 'ta-IN': '🦷 பல் வலி / பரிசோதனை', 'ja-JP': '🦷 歯の痛み・歯科検診' }, clerkText: { 'en-US': 'I am here for a dental checkup and have molar sensitivity.', 'zh-TW': '您好，我來進行牙科檢查，後排臼齒咬合時會痛。', 'ta-IN': 'பின்பல் பகுதியில் வலி உள்ளது.', 'ja-JP': '歯科検診に来ました。奥歯に痛みがあります。' } }
+    ]
+  },
+  {
+    id: 'convenience',
+    nameKey: '7-Eleven & Mart',
+    short: '7-Eleven',
+    emoji: '🏪',
+    iconImage: require('../../Icons/7 eleven icon.webp'),
+    bgImage: require('../../Icons/7 eleven icon.webp'),
+    accent: '#FF8A1F',
+    vibeQuote: 'Snack run! Need it microwaved or paying with Apple Pay? 🍙✨',
+    options: [
+      { id: 'cv_1', labels: { 'en-US': '📱 Apple Pay / Contactless Card', 'zh-TW': '📱 Apple Pay / 感應刷卡', 'ta-IN': '📱 Apple Pay / கார்டு', 'ja-JP': '📱 Apple Pay / タッチ決済' }, clerkText: { 'en-US': 'I will pay with Apple Pay, please.', 'zh-TW': '麻煩使用 Apple Pay 感應結帳，謝謝！', 'ta-IN': 'Apple Pay மூலம் பணம் செலுத்துகிறேன்.', 'ja-JP': 'Apple Payのタッチ決済でお願いします。' } },
+      { id: 'cv_2', labels: { 'en-US': '🛍️ No bag needed + Heat this up', 'zh-TW': '🛍️ 不用袋子 + 請幫我微波加熱', 'ta-IN': '🛍️ பை வேண்டாம் + சூடாக்கவும்', 'ja-JP': '🛍️ 袋不要 + 温めお願いします' }, clerkText: { 'en-US': 'No bag needed, and could you please heat this up for me?', 'zh-TW': '不用購物袋，另外這個麻煩請幫我微波加熱，謝謝您！', 'ta-IN': 'பை தேவையில்லை, இதை சூடாக்கவும்.', 'ja-JP': '袋は不要です。こちらをレンジで温めていただけますか？' } },
+      { id: 'cv_3', labels: { 'en-US': '📲 Scan Cloud Receipt Barcode', 'zh-TW': '📲 刷手機條碼載具', 'ta-IN': '📲 உறுப்பினர் பார் குறியீடு', 'ja-JP': '📲 ポイント・バーコード提示' }, clerkText: { 'en-US': 'Please scan my mobile receipt barcode.', 'zh-TW': '發票請幫我存手機條碼載具，謝謝！', 'ta-IN': 'உறுப்பினர் குறியீட்டை ஸ்கேன் செய்யவும்.', 'ja-JP': 'こちらのバーコードをスキャンしてください。' } }
+    ]
+  },
+  {
+    id: 'cafe',
+    nameKey: 'Cafe & Bubble Tea',
+    short: 'Cafe',
+    emoji: '☕',
+    iconImage: require('../../Icons/cafe icon.jpg'),
+    bgImage: require('../../Icons/cafe icon.jpg'),
+    accent: '#D4A373',
+    vibeQuote: 'Caffeine loading... Zero sugar, less ice, good vibes only!🧋🎶',
+    options: [
+      { id: 'cf_1', labels: { 'en-US': '🧊 Sugar-Free, Less Ice (0% / 30%)', 'zh-TW': '🧊 無糖、微冰 (0% / 30%)', 'ta-IN': '🧊 சர்க்கரை இல்லை, குறைந்த ஐஸ்', 'ja-JP': '🧊 無糖・氷少なめ' }, clerkText: { 'en-US': 'Could I get this sugar-free and with less ice, please?', 'zh-TW': '這杯麻煩幫我做無糖、微冰，謝謝！', 'ta-IN': 'சர்க்கரை இல்லாமல் குறைந்த ஐஸ் வைக்கவும்.', 'ja-JP': '無糖、氷少なめで作っていただけますか？' } },
+      { id: 'cf_2', labels: { 'en-US': '🥛 Swap to Oat / Soy Milk', 'zh-TW': '🥛 換成燕麥奶 / 豆漿', 'ta-IN': '🥛 ஓட்ஸ் பாலாக மாற்றவும்', 'ja-JP': '🥛 オーツミルク・豆乳に変更' }, clerkText: { 'en-US': 'Please substitute the milk with oat milk or soy milk.', 'zh-TW': '麻煩幫我把鮮奶換成燕麥奶或無糖豆漿，謝謝！', 'ta-IN': 'ஓட்ஸ் பால் சேர்க்கவும்.', 'ja-JP': 'ミルクをオーツミルクまたは豆乳に変更お願いします。' } },
+      { id: 'cf_3', labels: { 'en-US': '🥤 Brought my own eco-cup', 'zh-TW': '🥤 我有自備環保杯 (折5元)', 'ta-IN': '🥤 சொந்த குவளை உள்ளது', 'ja-JP': '🥤 マイボトル持参です' }, clerkText: { 'en-US': 'I brought my own tumbler for the drink.', 'zh-TW': '我有自備環保杯，請幫我裝在這個杯子裡，謝謝！', 'ta-IN': 'சொந்த குவளையில் ஊற்றித் தரவும்.', 'ja-JP': 'マイボトルを持参しました。こちらにお願いします。' } }
+    ]
+  },
+  {
+    id: 'restaurant',
+    nameKey: 'Dining & Fast Food',
+    short: 'Dining',
+    emoji: '🍱',
+    iconImage: require('../../Icons/Resturant icon.jpg'),
+    bgImage: require('../../Icons/Resturant icon.jpg'),
+    accent: '#FF453A',
+    vibeQuote: 'Fueling up! High protein, clean eats, zero stress. 🥩🥦',
+    options: [
+      { id: 'rs_1', labels: { 'en-US': '🍽️ Dine-in for one, please', 'zh-TW': '🍽️ 內用一位，謝謝', 'ta-IN': '🍽️ இங்கேயே சாப்பிடுகிறேன்', 'ja-JP': '🍽️ 店内で食べます（1名）' }, clerkText: { 'en-US': 'Dine-in for one person, thank you!', 'zh-TW': '您好，內用一位，謝謝！', 'ta-IN': 'இங்கேயே உட்கார்ந்து உண்கிறேன்.', 'ja-JP': '1名、店内で飲食をお願いします。' } },
+      { id: 'rs_2', labels: { 'en-US': '🥡 Takeout / To-go box', 'zh-TW': '🥡 外帶打包，謝謝', 'ta-IN': '🥡 பார்சல் (Takeout)', 'ja-JP': '🥡 持ち帰り（テイクアウト）' }, clerkText: { 'en-US': 'I would like this for takeout, please.', 'zh-TW': '餐點麻煩幫我做外帶，謝謝您！', 'ta-IN': 'பார்சல் செய்து தரவும்.', 'ja-JP': 'お持ち帰りでお願いします。' } },
+      { id: 'rs_3', labels: { 'en-US': '🥗 No Pork / Clean Prep', 'zh-TW': '🥗 不吃豬肉 / 清淡少油', 'ta-IN': '🥗 பன்றி இறைச்சி வேண்டாம்', 'ja-JP': '🥗 豚肉抜きでお願いします' }, clerkText: { 'en-US': 'I do not eat pork. Please ensure there is no pork or lard.', 'zh-TW': '我不吃豬肉，請幫我確認餐點不含豬肉與豬油，謝謝！', 'ta-IN': 'பன்றி இறைச்சி சேர்க்க வேண்டாம்.', 'ja-JP': '豚肉が食べられません。豚肉抜きでお願いします。' } }
+    ]
+  },
+  {
+    id: 'transit',
+    nameKey: 'Metro & Train Station',
+    short: 'Transit',
+    emoji: '🚆',
+    iconImage: require('../../Icons/transport icon.jpg'),
+    bgImage: require('../../Icons/transport icon.jpg'),
+    accent: '#5E5CE6',
+    vibeQuote: 'On the move! Next stop: wherever you want to go. 🚄🌟',
+    options: [
+      { id: 'tr_1', labels: { 'en-US': '💳 Top up $500 on EasyCard', 'zh-TW': '💳 悠遊卡加值 500 元', 'ta-IN': '💳 அட்டையில் $500 ரீசார்ஜ்', 'ja-JP': '💳 ICカードに500元チャージ' }, clerkText: { 'en-US': 'Please top up 500 dollars onto my EasyCard.', 'zh-TW': '不好意思，這張悠遊卡麻煩幫我加值 500 元。', 'ta-IN': 'அட்டையில் 500 ரீசார்ஜ் செய்யவும்.', 'ja-JP': 'こちらの交通カードに500元チャージをお願いします。' } },
+      { id: 'tr_2', labels: { 'en-US': '🎫 One ticket to Taipei (Next train)', 'zh-TW': '🎫 一張往台北，最近一班車', 'ta-IN': '🎫 தைபேக்கு ஒரு டிக்கெட்', 'ja-JP': '🎫 台北まで1枚（次の電車）' }, clerkText: { 'en-US': 'One ticket to Taipei on the next available train, please.', 'zh-TW': '麻煩買一張到台北的車票，最近的一班車就可以，謝謝！', 'ta-IN': 'அடுத்த ரயிலில் ஒரு டிக்கெட் வேண்டும்.', 'ja-JP': '一番早い列車で、台北まで大人1枚お願いします。' } }
+    ]
+  },
+  {
+    id: 'library',
+    nameKey: 'Library & Study Center',
+    short: 'Library',
+    emoji: '📚',
+    iconImage: 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=200&q=80',
+    bgImage: 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=1200&q=80',
+    accent: '#30D158',
+    vibeQuote: 'Shhh... Quiet genius mode activated! Let’s ace that research. 📖🤫',
+    options: [
+      { id: 'lib_1', labels: { 'en-US': '📕 Borrow / Check out these books', 'zh-TW': '📕 我想要借這幾本書', 'ta-IN': '📕 இந்த புத்தகங்களை இரவல் வாங்க', 'ja-JP': '📕 これらの本を借りたいです' }, clerkText: { 'en-US': 'Hi! I would like to check out these books. Here is my ID card.', 'zh-TW': '您好，我想要借這幾本書，這是我的學生證/借書證。', 'ta-IN': 'இந்த புத்தகங்களை இரவல் வாங்க விரும்புகிறேன்.', 'ja-JP': 'これらの本を借りたいです。こちらが利用カードです。' } },
+      { id: 'lib_2', labels: { 'en-US': '🔌 Where are the power outlets / study seats?', 'zh-TW': '🔌 請問有插座的自習區在哪裡？', 'ta-IN': '🔌 மின்சார வசதி உள்ள இடம் எங்கே?', 'ja-JP': '🔌 コンセント付きの自習席はどこですか？' }, clerkText: { 'en-US': 'Could you tell me which floor has study seats with power outlets?', 'zh-TW': '不好意思，請問有提供插座的筆電自習區在幾樓呢？', 'ta-IN': 'மின்சார வசதி உள்ள இடம் எங்கே உள்ளது?', 'ja-JP': 'コンセントが使える自習スペースは何階にありますか？' } },
+      { id: 'lib_3', labels: { 'en-US': '🖨️ How do I use the printer / copier?', 'zh-TW': '🖨️ 請問如何使用影印機/印表機？', 'ta-IN': '🖨️ பிரிண்டரை பயன்படுத்துவது எப்படி?', 'ja-JP': '🖨️ プリンターの使い方を教えてください' }, clerkText: { 'en-US': 'Excuse me, could you show me how to print a document from my files?', 'zh-TW': '您好，請問這裡的印表機要如何連線列印文件呢？', 'ta-IN': 'பிரிண்டரை பயன்படுத்துவது எப்படி என்று கூற முடியுமா?', 'ja-JP': 'すみません、こちらのコピー機で印刷する方法を教えていただけますか？' } },
+      { id: 'lib_4', labels: { 'en-US': '📥 Returning books / Extend due date', 'zh-TW': '📥 我要還書 / 辦理續借', 'ta-IN': '📥 புத்தகங்களைத் திரும்ப ஒப்படைக்க', 'ja-JP': '📥 本の返却・貸出延長をお願いします' }, clerkText: { 'en-US': 'I would like to return these books and extend my loan if possible.', 'zh-TW': '您好，我要歸還這幾本書，並詢問是否可以辦理續借，謝謝！', 'ta-IN': 'இந்த புத்தகங்களைத் திரும்ப ஒப்படைக்க விரும்புகிறேன்.', 'ja-JP': '本の返却をお願いします。可能であれば延長もしたいです。' } }
+    ]
+  }
+];
+
+export const CounterConversationScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
+  const [isOnline, setIsOnline] = useState(true);
+
+  const [clerkLangCode, setClerkLangCode] = useState<SupportedLang>('zh-TW');
+  const [userLangCode, setUserLangCode] = useState<SupportedLang>('en-US');
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+
+  const [venues, setVenues] = useState<VenueData[]>(DEFAULT_VENUES);
+  const [activeVenue, setActiveVenue] = useState<VenueData>(DEFAULT_VENUES[0]);
+  const [selectedHospitalDept, setSelectedHospitalDept] = useState<string>('all');
+
+  // Customization & Studio States
+  const [isEditVenueModalOpen, setIsEditVenueModalOpen] = useState<boolean>(false);
+  const [editVenueName, setEditVenueName] = useState<string>('');
+  const [editVenueShort, setEditVenueShort] = useState<string>('');
+  const [editVenueEmoji, setEditVenueEmoji] = useState<string>('✨');
+  const [editVenueAccent, setEditVenueAccent] = useState<string>('#0A84FF');
+  const [editVenueIconUrl, setEditVenueIconUrl] = useState<string>('');
+  const [editVenueBgUrl, setEditVenueBgUrl] = useState<string>('');
+
+  // Editable SOS State
+  const [sosProfile, setSosProfile] = useState<SOSProfile>(DEFAULT_SOS);
+  const [isEditingSOS, setIsEditingSOS] = useState<boolean>(false);
+
+  // Mochi Companion Mascot State
+  const [mochiMood, setMochiMood] = useState<'happy' | 'listening' | 'thinking' | 'speaking' | 'excited'>('happy');
+  const [mochiSpeech, setMochiSpeech] = useState<string>('Ready to roll! Tap a card or wake me up to listen.');
+  const [ambientEnergyColor, setAmbientEnergyColor] = useState<string>('#0A84FF');
+
+  const [isAddLocationModalOpen, setIsAddLocationModalOpen] = useState<boolean>(false);
+  const [newLocationInput, setNewLocationInput] = useState<string>('');
+  
+  const [isGeneratingVenue, setIsGeneratingVenue] = useState<boolean>(false);
+  const [isAutoDetectingLocation, setIsAutoDetectingLocation] = useState<boolean>(false);
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+
+  const [isScreenFlashing, setIsScreenFlashing] = useState<boolean>(false);
+  const [isClerkKeyboardOpen, setIsClerkKeyboardOpen] = useState<boolean>(false);
+  const [clerkTypedInput, setClerkTypedInput] = useState<string>('');
+  const [isSOSModalOpen, setIsSOSModalOpen] = useState<boolean>(false);
+
+  const [customTypedInput, setCustomTypedInput] = useState<string>('');
+  const [savedPhrases, setSavedPhrases] = useState<string[]>([]);
+  const [predictiveSuggestions, setPredictiveSuggestions] = useState<string[]>([]);
+
+  const [isLiveActive, setIsLiveActive] = useState<boolean>(false);
+  const [liveStreamText, setLiveStreamText] = useState<string>('');
+  const [liveHeardTranslated, setLiveHeardTranslated] = useState<string>('');
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [audioLevel, setAudioLevel] = useState<number>(1.0);
+
+  const [activeBubbles, setActiveBubbles] = useState<ChitChatBubble[]>(CHIT_CHAT_SYSTEM);
+
+  const t = UI_STRINGS[userLangCode] || UI_STRINGS['en-US'];
+  const [clerkDisplayMessage, setClerkDisplayMessage] = useState<string>(t.welcomeDefault);
+
+  // CRITICAL REFS: Eliminates stale closures when switching languages or venues mid-conversation!
+  const clerkLangRef = useRef<SupportedLang>(clerkLangCode);
+  const userLangRef = useRef<SupportedLang>(userLangCode);
+  const activeVenueRef = useRef<VenueData>(activeVenue);
+  const venuesRef = useRef<VenueData[]>(venues);
+  const isLiveActiveRef = useRef<boolean>(isLiveActive);
+
+  useEffect(() => { clerkLangRef.current = clerkLangCode; }, [clerkLangCode]);
+  useEffect(() => { userLangRef.current = userLangCode; }, [userLangCode]);
+  useEffect(() => { 
+    activeVenueRef.current = activeVenue;
+    setAmbientEnergyColor(activeVenue.accent);
+    setMochiSpeech(activeVenue.vibeQuote || `Switched to ${activeVenue.nameKey}! How can I help?`);
+  }, [activeVenue]);
+  useEffect(() => { venuesRef.current = venues; }, [venues]);
+  useEffect(() => { isLiveActiveRef.current = isLiveActive; }, [isLiveActive]);
+
+  const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const lastProcessedTextRef = useRef<string>('');
+  const debounceTimerRef = useRef<any>(null);
+  const locationIntervalRef = useRef<any>(null);
+  const lastLocationIdRef = useRef<string>('');
+
+  const getMochiFace = () => {
+    switch (mochiMood) {
+      case 'listening': return '(⊙_⊙)🎧';
+      case 'thinking': return '(｡•̀ᴗ-)✧💭';
+      case 'speaking': return '(≧◡≦)🔊';
+      case 'excited': return '╰(*°▽°*)╯✨';
+      default: return '(◕‿◕)✨';
+    }
+  };
+
+  // Inject CSS keyframes on Web for lively background animations
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const styleId = 'tacit-living-animations';
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          @keyframes tacitFloatSlow {
+            0% { transform: translate(0px, 0px) scale(1); }
+            50% { transform: translate(18px, -16px) scale(1.12); }
+            100% { transform: translate(0px, 0px) scale(1); }
+          }
+          @keyframes tacitMochiBounce {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-4px); }
+          }
+          @keyframes tacitPulseRing {
+            0% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.6); }
+            70% { box-shadow: 0 0 0 12px rgba(48, 209, 88, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
+  }, []);
+
+  // Load Persisted Venues, Phrases, and SOS Profile
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedVenues = await AsyncStorage.getItem('@aac_custom_venues_v2');
+        if (savedVenues) {
+          const parsed = JSON.parse(savedVenues);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Merge custom edits over defaults or add new ones
+            const merged = [...DEFAULT_VENUES];
+            parsed.forEach((custom: VenueData) => {
+              const idx = merged.findIndex(d => d.id === custom.id);
+              if (idx >= 0) merged[idx] = custom;
+              else merged.unshift(custom);
+            });
+            setVenues(merged);
+            setActiveVenue(merged[0]);
+          }
+        }
+        const savedMemory = await AsyncStorage.getItem('@aac_custom_phrases');
+        if (savedMemory) setSavedPhrases(JSON.parse(savedMemory));
+
+        const savedSOS = await AsyncStorage.getItem('@aac_sos_profile');
+        if (savedSOS) setSosProfile(JSON.parse(savedSOS));
+      } catch (e) {
+        console.warn('Storage load failed:', e);
+      }
+    })();
+
+    if (typeof window !== 'undefined') {
+      setIsOnline(navigator.onLine);
+      const onlineHandler = () => setIsOnline(true);
+      const offlineHandler = () => setIsOnline(false);
+      window.addEventListener('online', onlineHandler);
+      window.addEventListener('offline', offlineHandler);
+      return () => {
+        window.removeEventListener('online', onlineHandler);
+        window.removeEventListener('offline', offlineHandler);
+      };
+    }
+  }, []);
+
+  // AI Venue Card Generator with Smart Visuals & Vibe Quote
+  const fetchDynamicVenueCards = async (placeName: string): Promise<VenueData> => {
+    // @ts-ignore
+    const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+    if (!apiKey) throw new Error('API key missing');
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: 'application/json' }});
+
+    const prompt = `
+      You are Mochi, a cheerful AAC AI companion building a communication board for a non-verbal user.
+      The user just arrived at: "${placeName}".
+      Generate 4 practical, realistic communication cards for this exact place (e.g., if it's a Library: borrowing books, asking for outlets/Wi-Fi, printing; if a Gym: equipment, towel; if a Bank: account help).
+      Also pick a matching emoji, a vibrant hex color, and a short upbeat 1-sentence "vibeQuote" from Mochi cheering the user on.
+      Return ONLY a valid JSON object matching this exact structure:
+      {
+        "id": "loc_${Date.now()}",
+        "nameKey": "${placeName}",
+        "short": "${placeName.substring(0, 9)}",
+        "emoji": "🌟",
+        "iconImage": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=200&q=80",
+        "bgImage": "https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=1200&q=80",
+        "accent": "#30D158",
+        "vibeQuote": "Fun encouraging message about this place!",
+        "options": [
+          {
+            "id": "c1",
+            "labels": {"en-US": "🪪 Short English Button", "zh-TW": "🪪 繁體中文短標籤", "ta-IN": "🪪 தமிழ்", "ja-JP": "🪪 日本語ラベル"},
+            "clerkText": {"en-US": "Polite full spoken English sentence", "zh-TW": "禮貌且完整的繁體中文句子", "ta-IN": "முழு வாக்கியம்", "ja-JP": "丁寧な日本語のフルセンテンス"}
+          }
+        ]
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const rawText = result.response.text();
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Invalid JSON from AI');
+    return JSON.parse(jsonMatch[0]) as VenueData;
+  };
+
+  // MULTI-PROVIDER LIVE GPS RADAR (Works on Web without CORS crashes!)
+  const scanLiveLocationNow = async (isSilentBackground = false) => {
+    if (!isOnline || isAutoDetectingLocation || isGeneratingVenue) return;
+    setIsAutoDetectingLocation(true);
+    if (!isSilentBackground) {
+      setMochiMood('thinking');
+      setMochiSpeech('Scanning satellites & nearby buildings... 🛰️');
+    }
+
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        if (!isSilentBackground) setMochiSpeech('Location permission needed! Enable GPS in browser settings. 📍');
+        setIsAutoDetectingLocation(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = location.coords;
+
+      let detectedName = '';
+      let detectedCategory = '';
+
+      // Tier 1: Free, CORS-safe OpenStreetMap Overpass API (Finds exact POIs like Library, 7-Eleven, Cafe within 80m)
+      try {
+        const overpassQuery = `[out:json][timeout:6];(node(around:80,${latitude},${longitude})["name"];way(around:80,${latitude},${longitude})["name"];);out body 5;`;
+        const osmRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
+        const osmData = await osmRes.json();
+        if (osmData?.elements?.length > 0) {
+          const poi = osmData.elements.find((el: any) => el.tags && (el.tags.amenity || el.tags.shop || el.tags.building || el.tags.tourism)) || osmData.elements[0];
+          if (poi?.tags) {
+            detectedName = poi.tags['name:en'] || poi.tags.name || '';
+            detectedCategory = poi.tags.amenity || poi.tags.shop || poi.tags.building || '';
+          }
+        }
+      } catch (e) {}
+
+      // Tier 2: OpenStreetMap Nominatim Reverse Geocode Fallback
+      if (!detectedName) {
+        try {
+          const nomRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
+          const nomData = await nomRes.json();
+          detectedName = nomData?.name || nomData?.address?.amenity || nomData?.address?.shop || nomData?.address?.building || nomData?.address?.Get || '';
+          detectedCategory = nomData?.type || nomData?.category || '';
+        } catch (e) {}
+      }
+
+      if (!detectedName) {
+        if (!isSilentBackground) setMochiSpeech(`GPS locked (${latitude.toFixed(3)}, ${longitude.toFixed(3)}), no specific counter detected—tap '+' to type it!`);
+        setIsAutoDetectingLocation(false);
+        return;
+      }
+
+      if (isSilentBackground && lastLocationIdRef.current === detectedName) {
+        setIsAutoDetectingLocation(false);
+        return;
+      }
+      lastLocationIdRef.current = detectedName;
+
+      const combinedCheck = `${detectedName} ${detectedCategory}`.toLowerCase();
+      const currentVenues = venuesRef.current;
+
+      // Smart Match against existing dock venues first
+      let matchedVenue = currentVenues.find(v => v.nameKey.toLowerCase() === detectedName.toLowerCase());
+      if (!matchedVenue) {
+        if (combinedCheck.includes('library') || combinedCheck.includes('圖書館')) matchedVenue = currentVenues.find(v => v.id === 'library');
+        else if (combinedCheck.includes('7-eleven') || combinedCheck.includes('familymart') || combinedCheck.includes('mart') || combinedCheck.includes('convenience') || combinedCheck.includes('超商')) matchedVenue = currentVenues.find(v => v.id === 'convenience');
+        else if (combinedCheck.includes('hospital') || combinedCheck.includes('clinic') || combinedCheck.includes('醫') || combinedCheck.includes('診所')) matchedVenue = currentVenues.find(v => v.id === 'hospital');
+        else if (combinedCheck.includes('cafe') || combinedCheck.includes('coffee') || combinedCheck.includes('tea') || combinedCheck.includes('咖啡')) matchedVenue = currentVenues.find(v => v.id === 'cafe');
+        else if (combinedCheck.includes('station') || combinedCheck.includes('metro') || combinedCheck.includes('train') || combinedCheck.includes('捷運') || combinedCheck.includes('車站')) matchedVenue = currentVenues.find(v => v.id === 'transit');
+        else if (combinedCheck.includes('restaurant') || combinedCheck.includes('food') || combinedCheck.includes('餐廳')) matchedVenue = currentVenues.find(v => v.id === 'restaurant');
+      }
+
+      if (matchedVenue) {
+        setActiveVenue(matchedVenue);
+        setMochiMood('excited');
+        setMochiSpeech(`📍 Radar locked onto "${detectedName}"! Switched to ${matchedVenue.short} mode.`);
+        setLiveHeardTranslated(`📍 Live GPS Detected: ${detectedName}`);
+      } else {
+        // Brand new place! Generate custom AI cards automatically
+        setMochiMood('thinking');
+        setMochiSpeech(`✨ Discovered "${detectedName}"! Crafting custom cards for you...`);
+        const generated = await fetchDynamicVenueCards(detectedName);
+        if (generated && generated.options?.length > 0) {
+          const updatedVenues = [generated, ...currentVenues];
+          setVenues(updatedVenues);
+          setActiveVenue(generated);
+          setMochiMood('excited');
+          setMochiSpeech(generated.vibeQuote || `🎉 Welcome to ${detectedName}! Fresh cards are ready.`);
+          setLiveHeardTranslated(`✨ AI Auto-Created Spot: ${detectedName}`);
+          await AsyncStorage.setItem('@aac_custom_venues_v2', JSON.stringify(updatedVenues));
+        }
+      }
+    } catch (err) {
+      if (!isSilentBackground) setMochiSpeech('Could not reach GPS satellites right now—tap "+" to add any place!');
+    } finally {
+      setIsAutoDetectingLocation(false);
+    }
+  };
+
+  // Background GPS Polling every 25 seconds
+  useEffect(() => {
+    locationIntervalRef.current = setInterval(() => {
+      scanLiveLocationNow(true);
+    }, 25000);
+    return () => clearInterval(locationIntervalRef.current);
+  }, [isOnline]);
+
+  const buildCurrentOptions = (): ActionOption[] => {
+    let raw = activeVenue.options || [];
+    if (activeVenue.id === 'hospital' && selectedHospitalDept !== 'all') {
+      raw = raw.filter(o => o.category === selectedHospitalDept);
+    }
+    return raw.map(opt => ({
+      id: opt.id,
+      labelUser: opt.labels?.[userLangCode] || opt.labels?.['en-US'] || 'Option',
+      labelClerk: opt.clerkText?.[clerkLangCode] || opt.clerkText?.['zh-TW'] || opt.labels?.['en-US'] || '',
+      payloadType: 'text'
+    }));
+  };
+
+  const [currentOptions, setCurrentOptions] = useState<ActionOption[]>(buildCurrentOptions());
+
+  // Instant update of options and welcome message when language or venue changes
+  useEffect(() => {
+    setCurrentOptions(buildCurrentOptions());
+  }, [activeVenue, selectedHospitalDept, userLangCode, clerkLangCode]);
+
+  const interruptAudio = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  };
+
+  const speakText = (text: string, langTarget: SupportedLang) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      const found = LANGUAGE_LIST.find(l => l.code === langTarget);
+      u.lang = found ? found.ttsLang : langTarget;
+      u.rate = 1.03;
+      u.onstart = () => {
+        setIsSpeaking(true);
+        setMochiMood('speaking');
+      };
+      u.onend = () => {
+        setIsSpeaking(false);
+        setMochiMood(isLiveActiveRef.current ? 'listening' : 'happy');
+      };
+      u.onerror = () => {
+        setIsSpeaking(false);
+        setMochiMood('happy');
+      };
+      window.speechSynthesis.speak(u);
+    }
+  };
+
+  const playBeep = () => {
+    if (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) {
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+        osc.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {}
+    }
+  };
+
+  const triggerAttention = () => {
+    setIsScreenFlashing(true);
+    playBeep();
+    const msg = UI_STRINGS[clerkLangRef.current]?.introMsg || t.introMsg;
+    setClerkDisplayMessage(msg);
+    setMochiMood('excited');
+    setMochiSpeech(' Ding-dong! Politely getting the clerk’s attention for you!');
+    speakText(msg, clerkLangRef.current);
+    setTimeout(() => setIsScreenFlashing(false), 750);
+  };
+
+  const startAudioMeter = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }, 
+        video: false 
+      });
+      streamRef.current = stream;
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateMeter = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        setAudioLevel(0.95 + Math.min(0.45, (sum / dataArray.length) / 130));
+        animFrameRef.current = requestAnimationFrame(updateMeter);
+      };
+      updateMeter();
+    } catch (e) {}
+  };
+
+  const stopAudioMeter = () => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+    if (audioContextRef.current) audioContextRef.current.close();
+    setAudioLevel(1.0);
+  };
+
+  const handleTyping = (text: string) => {
+    setCustomTypedInput(text);
+    if (text.length > 1) {
+      const suggestions = savedPhrases.filter(p => p.toLowerCase().includes(text.toLowerCase()));
+      setPredictiveSuggestions(suggestions.slice(0, 3));
+    } else {
+      setPredictiveSuggestions([]);
+    }
+  };
+
+  const handleCustomTypedSubmit = async () => {
+    const text = customTypedInput.trim();
+    if (!text) return;
+
+    const currentClerkLang = clerkLangRef.current;
+    const currentUserLang = userLangRef.current;
+
+    setIsTranslating(true);
+    setMochiMood('thinking');
+    setMochiSpeech('Translating your message into staff language... ⚡');
+    let finalSpokenText = text;
+
+    if (!savedPhrases.includes(text)) {
+      const updatedMemory = [text, ...savedPhrases].slice(0, 50);
+      setSavedPhrases(updatedMemory);
+      AsyncStorage.setItem('@aac_custom_phrases', JSON.stringify(updatedMemory));
+    }
+
+    try {
+      if (isOnline && currentClerkLang !== currentUserLang) {
+        // @ts-ignore
+        const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+        if (apiKey) {
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const clerkLangObj = LANGUAGE_LIST.find(l => l.code === currentClerkLang);
+          const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+          
+          const prompt = `Translate this phrase naturally and concisely into ${clerkLangObj?.name} for speaking to a store/counter staff. Return ONLY the pure translated text, no quotes: "${text}"`;
+          const translationResult = await model.generateContent(prompt);
+          finalSpokenText = translationResult.response.text().trim();
+        }
+      }
+    } catch (err) {
+      console.warn('Translation fallback to original text');
+    }
+
+    setClerkDisplayMessage(finalSpokenText);
+    speakText(finalSpokenText, currentClerkLang); 
+    setLiveHeardTranslated(`🗣️ You said: "${finalSpokenText}"`);
+    setMochiSpeech('Delivered! Look at that smooth communication. ✨');
+    
+    setCustomTypedInput(''); 
+    setPredictiveSuggestions([]);
+    setIsTranslating(false);
+  };
+
+  const evaluateRealtimeTriggers = (raw: string) => {
+    const text = raw.toLowerCase();
+    const cUserLang = userLangRef.current;
+    const cVenues = venuesRef.current;
+
+    // Instant Voice Location Switching ("I'm at the library", "7-Eleven", etc.)
+    if (text.includes('library') || text.includes('圖書館') || text.includes('借書')) {
+      const lib = cVenues.find(v => v.id === 'library');
+      if (lib && activeVenueRef.current.id !== 'library') {
+        setActiveVenue(lib);
+        setMochiMood('excited');
+        return true;
+      }
+    }
+
+    if (text.includes('how are you') || text.includes('你好嗎') || text.includes('最近怎樣')) {
+      setActiveBubbles(CHIT_CHAT_SYSTEM);
+      setAmbientEnergyColor('#30D158');
+      setMochiMood('excited');
+      setMochiSpeech('Aww, they are checking in on you! Tap a reaction bubble!');
+      setLiveHeardTranslated('💬 Staff asked: "How are you doing today?"');
+      return true;
+    }
+
+    if (text.includes('what happened') || text.includes('怎麼了') || text.includes('哪裡不舒服')) {
+      const badBubble = CHIT_CHAT_SYSTEM.find(b => b.id === 'cc_bad');
+      if (badBubble && badBubble.followUps) {
+        setActiveBubbles([...CORE_REACTIONS, ...badBubble.followUps]);
+      }
+      setAmbientEnergyColor('#FF453A');
+      setMochiMood('thinking');
+      setMochiSpeech('They want to know what’s wrong—tap a symptom card below.');
+      setLiveHeardTranslated('💬 Staff asked: "What happened / How can I help?"');
+      return true;
+    }
+    return false;
+  };
+
+  // LIVE CONVERSATION AI GENERATOR (Uses fresh refs so language changes never need a page refresh!)
+  const dispatchLiveIntent = async (text: string) => {
+    const cleaned = text.trim();
+    if (!cleaned || cleaned === lastProcessedTextRef.current) return;
+    lastProcessedTextRef.current = cleaned;
+
+    const currentClerkLang = clerkLangRef.current;
+    const currentUserLang = userLangRef.current;
+    const currentVenue = activeVenueRef.current;
+
+    const matchedTrigger = evaluateRealtimeTriggers(cleaned);
+
+    if (!isOnline) {
+      if (!matchedTrigger) setLiveHeardTranslated(`(Offline) Heard: "${cleaned}"`);
+      return; 
+    }
+
+    setMochiMood('thinking');
+    setMochiSpeech('Decoding what the staff just said... 🧠⚡');
+
+    try {
+      // @ts-ignore
+      const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+      if (!apiKey) return;
+
+      const userLangObj = LANGUAGE_LIST.find(l => l.code === currentUserLang) || LANGUAGE_LIST[0];
+      const clerkLangObj = LANGUAGE_LIST.find(l => l.code === currentClerkLang) || LANGUAGE_LIST[1];
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: 'application/json' }});
+
+      const prompt = `
+        You are Mochi, an upbeat AAC assistant helping a non-verbal user at "${currentVenue.nameKey}".
+        The counter staff just said: "${cleaned}"
+        
+        1. Translate/summarize what the staff meant into ${userLangObj.name} ("meaningInUserLang").
+        2. Write a short, fun, encouraging 1-line reaction from Mochi in ${userLangObj.name} ("mochiQuip", max 12 words).
+        3. Pick a mood color hex ("moodColor", e.g. "#30D158" for friendly, "#FFD60A" for question, "#0A84FF" for info).
+        4. Generate 3 distinct, practical reply cards for the user.
+           - "labelUser" MUST be in ${userLangObj.name} (with a fitting emoji).
+           - "labelClerk" MUST be the natural spoken response in ${clerkLangObj.name}.
+        
+        Return ONLY valid JSON:
+        {
+          "meaningInUserLang": "Translated staff question",
+          "mochiQuip": "They asked if you want a bag! Pick one below ✨",
+          "moodColor": "#FFD60A",
+          "options": [
+            {
+              "id": "r1",
+              "labelUser": "✅ Short reply in ${userLangObj.name}",
+              "labelClerk": "Full polite reply in ${clerkLangObj.name}"
+            }
+          ]
+        }
+      `;
+
+      const result = await model.generateContent(prompt);
+      const rawText = result.response.text();
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return;
+      
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      if (parsed && parsed.options && parsed.options.length > 0) {
+        const dynamicOptions: ActionOption[] = parsed.options.map((opt: any, index: number) => ({
+          id: `dyn_${Date.now()}_${index}`,
+          labelUser: opt.labelUser || 'Reply',
+          labelClerk: opt.labelClerk || '',
+          payloadType: 'text'
+        }));
+        setCurrentOptions(dynamicOptions);
+        if (parsed.meaningInUserLang) setLiveHeardTranslated(parsed.meaningInUserLang);
+        if (parsed.mochiQuip) setMochiSpeech(parsed.mochiQuip);
+        if (parsed.moodColor) setAmbientEnergyColor(parsed.moodColor);
+        setMochiMood('excited');
+      }
+    } catch (e) {
+      console.warn('Gemini stream inference failed:', e);
+      setMochiMood('listening');
+    }
+  };
+
+  // Dynamic Speech Recognition Hook — hot-swaps language immediately without refreshing!
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRec) return;
+
+      if (recognitionRef.current) {
+        try { recognitionRef.current.onend = null; recognitionRef.current.abort(); } catch {}
+      }
+
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      const clerkLangObj = LANGUAGE_LIST.find(l => l.code === clerkLangCode);
+      recognition.lang = clerkLangObj ? clerkLangObj.recognitionCode : 'zh-TW';
+
+      recognition.onresult = (event: any) => {
+        interruptAudio();
+        let currentInterim = '';
+        let highestConfidence = 0;
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i][0];
+          currentInterim += result.transcript;
+          if (event.results[i].isFinal && result.confidence > highestConfidence) {
+            highestConfidence = result.confidence;
+          }
+        }
+
+        const text = currentInterim.trim();
+        if (!text) return;
+        if (highestConfidence > 0 && highestConfidence < 0.45) return; 
+
+        setLiveStreamText(text);
+        setMochiMood('listening');
+
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          dispatchLiveIntent(text);
+        }, 1000);
+      };
+
+      recognition.onerror = () => {};
+      recognition.onend = () => {
+        if (isLiveActiveRef.current) {
+          try { recognition.start(); } catch {}
+        }
+      };
+
+      recognitionRef.current = recognition;
+      if (isLiveActive) {
+        try { recognition.start(); } catch {}
+      }
+    }
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [clerkLangCode, isLiveActive]);
+
+  const toggleLiveSession = () => {
+    if (!isLiveActive) {
+      setIsLiveActive(true);
+      setMochiMood('listening');
+      setMochiSpeech('Ears wide open! I’m listening to the counter staff now. 🎧');
+      startAudioMeter();
+      try { recognitionRef.current?.start(); } catch {}
+    } else {
+      setIsLiveActive(false);
+      setMochiMood('happy');
+      setMochiSpeech('Taking a breather! Tap any card below whenever you need.');
+      stopAudioMeter();
+      interruptAudio();
+      try { recognitionRef.current?.stop(); } catch {}
+      setLiveStreamText('');
+    }
+  };
+
+  const handleSelectOption = (opt: ActionOption) => {
+    interruptAudio();
+    setClerkDisplayMessage(opt.labelClerk);
+    setMochiMood('speaking');
+    setMochiSpeech(`Speaking to clerk: "${opt.labelUser}" 🔊`);
+    speakText(opt.labelClerk, clerkLangRef.current);
+  };
+
+  const handleSelectBubble = (bubble: ChitChatBubble) => {
+    interruptAudio();
+    const clerkPhrase = bubble.clerkText[clerkLangRef.current] || bubble.clerkText['zh-TW'];
+    setClerkDisplayMessage(clerkPhrase);
+    setMochiMood('speaking');
+    speakText(clerkPhrase, clerkLangRef.current);
+
+    if (bubble.followUps && bubble.followUps.length > 0) {
+      setActiveBubbles([...CORE_REACTIONS, ...bubble.followUps]);
+    }
+  };
+
+  // Open Edit Current Venue Studio Modal
+  const openEditVenueModal = () => {
+    setEditVenueName(activeVenue.nameKey);
+    setEditVenueShort(activeVenue.short);
+    setEditVenueEmoji(activeVenue.emoji || '✨');
+    setEditVenueAccent(activeVenue.accent || '#0A84FF');
+    setEditVenueIconUrl(typeof activeVenue.iconImage === 'string' ? activeVenue.iconImage : '');
+    setEditVenueBgUrl(typeof activeVenue.bgImage === 'string' ? activeVenue.bgImage : '');
+    setIsEditVenueModalOpen(true);
+  };
+
+  const handleSaveEditedVenue = async () => {
+    const updated: VenueData = {
+      ...activeVenue,
+      nameKey: editVenueName.trim() || activeVenue.nameKey,
+      short: editVenueShort.trim() || activeVenue.short,
+      emoji: editVenueEmoji.trim() || '✨',
+      accent: editVenueAccent,
+      iconImage: editVenueIconUrl.trim() ? editVenueIconUrl.trim() : activeVenue.iconImage,
+      bgImage: editVenueBgUrl.trim() ? editVenueBgUrl.trim() : activeVenue.bgImage
+    };
+
+    const newVenuesList = venues.map(v => v.id === updated.id ? updated : v);
+    setVenues(newVenuesList);
+    setActiveVenue(updated);
+    setIsEditVenueModalOpen(false);
+    setMochiMood('excited');
+    setMochiSpeech(`Fresh new look saved for ${updated.short}! 🎨✨`);
+    await AsyncStorage.setItem('@aac_custom_venues_v2', JSON.stringify(newVenuesList));
+  };
+
+  const handleSaveSOSProfile = async () => {
+    await AsyncStorage.setItem('@aac_sos_profile', JSON.stringify(sosProfile));
+    setIsEditingSOS(false);
+  };
+
+  const handleGenerateNewVenue = async () => {
+    const input = newLocationInput.trim();
+    if (!input || isGeneratingVenue) return;
+
+    if (!isOnline) {
+      alert('Cannot analyze locations while offline.');
+      return;
+    }
+
+    setIsGeneratingVenue(true);
+    setMochiMood('thinking');
+    try {
+      const generated = await fetchDynamicVenueCards(input);
+
+      if (generated && generated.options) {
+        const updatedVenues = [generated, ...venues];
+        setVenues(updatedVenues);
+        setActiveVenue(generated);
+        setMochiMood('excited');
+        setMochiSpeech(generated.vibeQuote || `Boom! Created custom cards for ${input}! 🎉`);
+
+        await AsyncStorage.setItem('@aac_custom_venues_v2', JSON.stringify(updatedVenues));
+        setNewLocationInput('');
+        setIsAddLocationModalOpen(false);
+      }
+    } catch (err) {
+      alert('Unable to analyze location. Please check your EXPO_PUBLIC_GEMINI_API_KEY in .env');
+    } finally {
+      setIsGeneratingVenue(false);
+    }
+  };
+
+  const resolveAssetSource = (src: any) => {
+    if (!src) return undefined;
+    if (typeof src === 'string') return { uri: src };
+    return src;
+  };
+
+  const clerkLang = LANGUAGE_LIST.find(l => l.code === clerkLangCode) || LANGUAGE_LIST[0];
+  const userLang = LANGUAGE_LIST.find(l => l.code === userLangCode) || LANGUAGE_LIST[0];
+
+  return (
+    <View style={styles.outerScreen}>
+      
+      {/* Dynamic Living Wallpaper + Animated Color Aura Blobs */}
+      <View style={[StyleSheet.absoluteFill, { zIndex: 0, backgroundColor: isScreenFlashing ? '#FFF' : '#05070C', overflow: 'hidden' }]}>
+        <Image 
+          key={`bg-${activeVenue.id}-${typeof activeVenue.bgImage === 'string' ? activeVenue.bgImage : 'local'}`}
+          source={resolveAssetSource(activeVenue.bgImage)}
+          style={{ width: '100%', height: '100%', resizeMode: 'cover', opacity: isScreenFlashing ? 0 : 0.45 }}
+          blurRadius={4}
+        />
+        {/* Animated Glowing Aura Blobs that react to Venue & Conversation Mood */}
+        {!isScreenFlashing && (
+          <>
+            <div style={{
+              position: 'absolute', top: '-10%', left: '-15%', width: '360px', height: '360px',
+              borderRadius: '50%', background: `radial-gradient(circle, ${ambientEnergyColor}55 0%, transparent 70%)`,
+              filter: 'blur(45px)', animation: 'tacitFloatSlow 9s ease-in-out infinite', pointerEvents: 'none'
+            }} />
+            <div style={{
+              position: 'absolute', bottom: '5%', right: '-15%', width: '320px', height: '320px',
+              borderRadius: '50%', background: `radial-gradient(circle, ${activeVenue.accent}44 0%, transparent 70%)`,
+              filter: 'blur(50px)', animation: 'tacitFloatSlow 12s ease-in-out infinite reverse', pointerEvents: 'none'
+            }} />
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(to bottom, rgba(5,7,12,0.55) 0%, rgba(5,7,12,0.45) 45%, rgba(5,7,12,0.92) 100%)',
+              pointerEvents: 'none'
+            }} />
+          </>
+        )}
+      </View>
+
+      <View style={[styles.mobileContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+
+        {/* 180° Flipped Clerk Display */}
+        <View style={[styles.clerkRegion, { borderColor: `${activeVenue.accent}44`, borderWidth: 1 }]}>
+          <div style={glassOverlayStyle} />
+          <View style={styles.clerkRotatedContainer}>
+            <Text style={styles.clerkMetaTag}>[ {t.clerkViewTag} • {activeVenue.emoji || '📍'} {activeVenue.short.toUpperCase()} ]</Text>
+            <Text style={[styles.clerkResponseText, { color: activeVenue.accent }]} numberOfLines={3} adjustsFontSizeToFit>
+              {clerkDisplayMessage}
+            </Text>
+
+            <TouchableOpacity style={styles.clerkKeyboardToggle} onPress={() => setIsClerkKeyboardOpen(true)}>
+              <Text style={styles.clerkKeyboardToggleText}>{t.clerkTypeBtn}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Status & Language Studio Bar */}
+        <View style={styles.divider}>
+          <div style={glassOverlayStyle} />
+          <View style={styles.liveIndicatorRow}>
+            <View style={[styles.liveDot, isLiveActive && styles.liveDotActive]} />
+            <Text style={styles.dividerContextLabel}>
+              {isLiveActive ? t.live : t.standby} • {clerkLang.short} ⇄ {userLang.short}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, zIndex: 2 }}>
+            <TouchableOpacity style={styles.settingsPill} onPress={openEditVenueModal}>
+              <Text style={styles.settingsPillText}>{t.editVenueBtn}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.settingsPill} onPress={() => setIsSettingsOpen(true)}>
+              <Text style={styles.settingsPillText}>{t.languages}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.contentRow}>
+          <View style={styles.userRegion}>
+
+            {!isOnline && (
+              <View style={styles.offlineNoticeBar}>
+                <Text style={styles.offlineNoticeText}>{t.offlineNotice}</Text>
+              </View>
+            )}
+
+            {/* Top Action Row: Attention Bell + Instant GPS Radar Scan */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+              <TouchableOpacity style={styles.attentionBtn} onPress={triggerAttention}>
+                <Text style={styles.attentionBtnText}>{t.attentionBtn}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.gpsScanBtn, { borderColor: activeVenue.accent }]} 
+                onPress={() => scanLiveLocationNow(false)}
+                disabled={isAutoDetectingLocation}
+              >
+                {isAutoDetectingLocation ? (
+                  <ActivityIndicator size="small" color={activeVenue.accent} />
+                ) : (
+                  <Text style={[styles.gpsScanBtnText, { color: activeVenue.accent }]}>{t.scanGpsBtn}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* LIVE INTERACTIVE COMPANION STAGE: Orb + Mochi Mascot */}
+            <View style={[styles.kineticContainer, { borderColor: `${ambientEnergyColor}55`, borderWidth: 1 }]}>
+              <div style={glassOverlayStyle} />
+              <View style={styles.companionStageRow}>
+                <View style={styles.orbWrapper}>
+                  <BallStudy mode="dark" scale={audioLevel} brightness={isLiveActive ? (isSpeaking ? 1.7 : 1.4) : 0.85} />
+                </View>
+                <View style={styles.mochiBuddyBox}>
+                  <View style={styles.mochiHeaderRow}>
+                    <Text style={[styles.mochiAvatarText, { color: ambientEnergyColor }]}>{getMochiFace()}</Text>
+                    <View style={[styles.mochiMoodBadge, { backgroundColor: `${ambientEnergyColor}25` }]}>
+                      <Text style={[styles.mochiMoodBadgeText, { color: ambientEnergyColor }]}>
+                        {activeVenue.emoji || '✨'} {activeVenue.short}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.mochiSpeechText} numberOfLines={2}>
+                    {liveStreamText ? `🎤 "${liveStreamText}"` : mochiSpeech}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.liveButton, isLiveActive ? styles.liveButtonOn : { backgroundColor: activeVenue.accent }]} 
+              onPress={toggleLiveSession}
+            >
+              <Text style={styles.liveButtonText}>{isLiveActive ? t.endLive : t.startLive}</Text>
+            </TouchableOpacity>
+
+            {/* Quick Reaction Bubbles */}
+            <View style={styles.bubblesHeaderRow}>
+              <Text style={styles.bubblesHeaderTitle}>{t.floatingBubblesTitle}</Text>
+              <TouchableOpacity onPress={() => setActiveBubbles(CHIT_CHAT_SYSTEM)}>
+                <Text style={[styles.bubblesResetText, { color: activeVenue.accent }]}>{t.reset}</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bubbleScrollRow}>
+              {activeBubbles.map((bubble) => (
+                <TouchableOpacity
+                  key={bubble.id}
+                  style={[styles.floatingBubble, bubble.isCore && { backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: activeVenue.accent }]}
+                  onPress={() => handleSelectBubble(bubble)}
+                >
+                  <div style={glassOverlayStyle} />
+                  <Text style={[styles.floatingBubbleText, bubble.isCore && { color: activeVenue.accent }]}>
+                    {bubble.labels[userLangCode] || bubble.labels['en-US']}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {predictiveSuggestions.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                {predictiveSuggestions.map((sug, i) => (
+                  <TouchableOpacity key={i} style={styles.predictivePill} onPress={() => setCustomTypedInput(sug)}>
+                    <Text style={styles.predictivePillText}>⚡ {sug}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Custom Input with Instant Clerk Translation */}
+            <View style={styles.customInputRow}>
+              <div style={glassOverlayStyle} />
+              <TextInput
+                style={styles.customInputField}
+                placeholder={isTranslating ? t.translatingText : t.typePlaceholder}
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                value={customTypedInput}
+                onChangeText={handleTyping}
+                onSubmitEditing={handleCustomTypedSubmit}
+                returnKeyType="send"
+                editable={!isTranslating}
+              />
+              <TouchableOpacity style={[styles.customSendBtn, { backgroundColor: activeVenue.accent }]} onPress={handleCustomTypedSubmit} disabled={isTranslating}>
+                {isTranslating ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={styles.customSendBtnText}>🗣️</Text>}
+              </TouchableOpacity>
+            </View>
+
+            {liveHeardTranslated ? (
+              <View style={[styles.transcriptBox, { borderColor: `${ambientEnergyColor}66`, borderWidth: 1 }]}>
+                <div style={glassOverlayStyle} />
+                <View style={styles.transcriptHeader}>
+                  <Text style={[styles.transcriptLabel, { color: ambientEnergyColor }]}>{t.understoodIntent}</Text>
+                </View>
+                <Text style={styles.transcriptText} numberOfLines={2}>{liveHeardTranslated}</Text>
+              </View>
+            ) : null}
+
+            {/* Active Location Pill */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.quickReplyTitle}>{t.liveLocationText}</Text>
+              <TouchableOpacity 
+                style={[styles.locationTagPill, { borderColor: activeVenue.accent, flexDirection: 'row', alignItems: 'center', gap: 4 }]}
+                onPress={openEditVenueModal}
+              >
+                {isAutoDetectingLocation && <ActivityIndicator size="small" color={activeVenue.accent} />}
+                <Text style={[styles.locationTagText, { color: activeVenue.accent }]}>
+                  {activeVenue.emoji || '📍'} {activeVenue.nameKey} ✎
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Smart Contextual Cards */}
+            <ScrollView contentContainerStyle={styles.actionCardGrid} showsVerticalScrollIndicator={false}>
+              {currentOptions.map((opt) => (
+                <TouchableOpacity key={opt.id} style={[styles.actionCard, { borderLeftColor: activeVenue.accent }]} onPress={() => handleSelectOption(opt)}>
+                  <div style={glassOverlayStyle} />
+                  <Text style={[styles.actionCardText, { color: '#FFFFFF' }]}>{opt.labelUser}</Text>
+                  <Text style={[styles.previewSubtext, { color: activeVenue.accent }]}>{t.facingClerkPrefix} "{opt.labelClerk}" 🔊</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Right Floating Dock */}
+          <View style={styles.sidebarDock}>
+            <div style={dockGlassStyle} />
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.dockScroll}>
+              {venues.map((loc) => {
+                const isSelected = activeVenue.id === loc.id;
+                return (
+                  <TouchableOpacity
+                    key={loc.id}
+                    style={[styles.dockImageBox, isSelected && [styles.dockImageBoxActive, { borderColor: loc.accent }]]}
+                    onPress={() => { setActiveVenue(loc); if (loc.id === 'hospital') setSelectedHospitalDept('all'); }}
+                  >
+                    <Image source={resolveAssetSource(loc.iconImage)} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                    <View style={styles.dockEmojiBadge}>
+                      <Text style={{ fontSize: 9 }}>{loc.emoji || '📍'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity style={styles.addLocationButton} onPress={() => setIsAddLocationModalOpen(true)}>
+                <Text style={styles.addLocationText}>＋</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.sosSidebarButton} onPress={() => setIsSOSModalOpen(true)}>
+                <Text style={styles.sosSidebarText}>{t.sosBtn}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+
+        </View>
+
+        {/* MODAL 1: Clerk Inverted Keyboard */}
+        <Modal visible={isClerkKeyboardOpen} transparent animationType="fade">
+          <View style={[styles.modalOverlay, { justifyContent: 'center' }]}>
+            <View style={[styles.modalContent, { transform: [{ rotate: '180deg' }] }]}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>{t.clerkTypeBtn}</Text>
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder={t.clerkTypePlaceholder}
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={clerkTypedInput}
+                onChangeText={setClerkTypedInput}
+                autoFocus
+              />
+              <TouchableOpacity style={styles.saveBtn} onPress={() => {
+                const reply = clerkTypedInput.trim();
+                setIsClerkKeyboardOpen(false);
+                setClerkTypedInput('');
+                if (reply) {
+                  setLiveHeardTranslated(`⌨️ Clerk Typed: "${reply}"`);
+                  dispatchLiveIntent(reply);
+                }
+              }}>
+                <Text style={styles.saveBtnText}>{t.clerkSend}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsClerkKeyboardOpen(false)}>
+                <Text style={styles.cancelBtnText}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MODAL 2: Editable SOS Fullscreen Emergency Modal */}
+        <Modal visible={isSOSModalOpen} transparent animationType="slide">
+          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(220, 38, 38, 0.96)' }]}>
+            <View style={styles.sosModalContent}>
+              <Text style={styles.sosModalTitle}>🚨 {t.sosTitle} 🚨</Text>
+              
+              {!isEditingSOS ? (
+                <>
+                  <View style={styles.sosInfoBox}>
+                    <Text style={styles.sosInfoText}>Name: <Text style={{fontWeight:'900'}}>{sosProfile.name}</Text></Text>
+                    <Text style={styles.sosInfoText}>Blood Type: <Text style={{fontWeight:'900'}}>{sosProfile.blood}</Text></Text>
+                    <Text style={styles.sosInfoText}>Allergies: <Text style={{fontWeight:'900'}}>{sosProfile.allergies}</Text></Text>
+                    <Text style={styles.sosInfoText}>Emergency Contact: <Text style={{fontWeight:'900'}}>{sosProfile.contact}</Text></Text>
+                    <Text style={[styles.sosInfoText, { marginTop: 8, fontSize: 15, opacity: 0.9 }]}>"{sosProfile.note}"</Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.sosSpeakActionBtn} 
+                    onPress={() => speakText(sosProfile.note, clerkLangRef.current)}
+                  >
+                    <Text style={styles.sosSpeakActionText}>{t.sosSpeak}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.saveBtn, { backgroundColor: 'rgba(0,0,0,0.35)', width: '100%' }]} onPress={() => setIsEditingSOS(true)}>
+                    <Text style={styles.saveBtnText}>✎ Edit Medical ID Details</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <View style={{ width: '100%' }}>
+                  <TextInput style={styles.modalTextInput} value={sosProfile.name} onChangeText={(v) => setSosProfile({...sosProfile, name: v})} placeholder="Full Name" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.blood} onChangeText={(v) => setSosProfile({...sosProfile, blood: v})} placeholder="Blood Type (e.g. O+)" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.allergies} onChangeText={(v) => setSosProfile({...sosProfile, allergies: v})} placeholder="Allergies" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.contact} onChangeText={(v) => setSosProfile({...sosProfile, contact: v})} placeholder="Emergency Phone" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.note} onChangeText={(v) => setSosProfile({...sosProfile, note: v})} placeholder="Emergency Spoken Message" placeholderTextColor="#DDD" />
+                  <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#000' }]} onPress={handleSaveSOSProfile}>
+                    <Text style={styles.saveBtnText}>💾 Save Emergency Profile</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setIsEditingSOS(false); setIsSOSModalOpen(false); }}>
+                <Text style={[styles.cancelBtnText, { color: '#FFF' }]}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MODAL 3: Edit Venue Studio (Change Name, Emoji, Color, Icon & Background Image URL) */}
+        <Modal visible={isEditVenueModalOpen} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>🎨 Customize "{activeVenue.short}"</Text>
+              <ScrollView style={{ maxHeight: 400 }}>
+                <Text style={styles.sectionHeader}>Venue Title & Emoji Badge</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[styles.modalTextInput, { width: 60, textAlign: 'center' }]}
+                    value={editVenueEmoji}
+                    onChangeText={setEditVenueEmoji}
+                    placeholder="🌟"
+                  />
+                  <TextInput
+                    style={[styles.modalTextInput, { flex: 1 }]}
+                    value={editVenueName}
+                    onChangeText={setEditVenueName}
+                    placeholder="Full Location Name"
+                  />
+                </View>
+
+                <Text style={styles.sectionHeader}>Short Dock Label</Text>
+                <TextInput
+                  style={styles.modalTextInput}
+                  value={editVenueShort}
+                  onChangeText={setEditVenueShort}
+                  placeholder="Short Name (max 8 chars)"
+                />
+
+                <Text style={styles.sectionHeader}>Theme Aura Color</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {COLOR_SWATCHES.map(color => (
+                    <TouchableOpacity
+                      key={color}
+                      onPress={() => setEditVenueAccent(color)}
+                      style={{
+                        width: 34, height: 34, borderRadius: 17, backgroundColor: color,
+                        borderWidth: editVenueAccent === color ? 3 : 0, borderColor: '#FFF'
+                      }}
+                    />
+                  ))}
+                </View>
+
+                <Text style={styles.sectionHeader}>Custom Icon Image URL (Optional)</Text>
+                <TextInput
+                  style={styles.modalTextInput}
+                  value={editVenueIconUrl}
+                  onChangeText={setEditVenueIconUrl}
+                  placeholder="Paste https:// image link for sidebar icon..."
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                />
+
+                <Text style={styles.sectionHeader}>Custom Wallpaper URL (Optional)</Text>
+                <TextInput
+                  style={styles.modalTextInput}
+                  value={editVenueBgUrl}
+                  onChangeText={setEditVenueBgUrl}
+                  placeholder="Paste https:// image link for background..."
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                />
+              </ScrollView>
+
+              <TouchableOpacity style={[styles.saveBtn, { backgroundColor: editVenueAccent }]} onPress={handleSaveEditedVenue}>
+                <Text style={styles.saveBtnText}>💾 Save Custom Look</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditVenueModalOpen(false)}>
+                <Text style={styles.cancelBtnText}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MODAL 4: Language Settings */}
+        <Modal visible={isSettingsOpen} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>{t.modalTitle}</Text>
+              <ScrollView style={{ maxHeight: 380 }}>
+                <Text style={styles.sectionHeader}>{t.staffLangLabel}</Text>
+                {LANGUAGE_LIST.map((lang) => (
+                  <TouchableOpacity
+                    key={`clerk-${lang.code}`}
+                    style={[styles.languageOption, clerkLangCode === lang.code && styles.languageOptionSelected]}
+                    onPress={() => setClerkLangCode(lang.code)}
+                  >
+                    <Text style={styles.languageOptionText}>{lang.name}</Text>
+                    {clerkLangCode === lang.code && <Text style={{ color: '#30D158', fontWeight: 'bold' }}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+                <Text style={[styles.sectionHeader, { marginTop: 18 }]}>{t.userLangLabel}</Text>
+                {LANGUAGE_LIST.map((lang) => (
+                  <TouchableOpacity
+                    key={`user-${lang.code}`}
+                    style={[styles.languageOption, userLangCode === lang.code && styles.languageOptionSelected]}
+                    onPress={() => setUserLangCode(lang.code)}
+                  >
+                    <Text style={styles.languageOptionText}>{lang.name}</Text>
+                    {userLangCode === lang.code && <Text style={{ color: '#FF8A1F', fontWeight: 'bold' }}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.closeModalButton} onPress={() => setIsSettingsOpen(false)}>
+                <Text style={styles.closeModalText}>{t.saveSettings}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MODAL 5: Add New Place with AI */}
+        <Modal visible={isAddLocationModalOpen} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>{t.addLocationModalTitle}</Text>
+              <Text style={styles.modalSub}>{t.addLocationModalSub}</Text>
+              
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder={t.addLocationPlaceholder}
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={newLocationInput}
+                onChangeText={setNewLocationInput}
+                onSubmitEditing={handleGenerateNewVenue}
+                autoFocus
+              />
+
+              <TouchableOpacity style={[styles.saveBtn, isGeneratingVenue && { opacity: 0.5 }]} disabled={isGeneratingVenue} onPress={handleGenerateNewVenue}>
+                {isGeneratingVenue ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator color="#FFF" size="small" />
+                    <Text style={styles.saveBtnText}>{t.addLocationAnalyzingBtn}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.saveBtnText}>{t.addLocationAnalyzeBtn}</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsAddLocationModalOpen(false)}>
+                <Text style={styles.cancelBtnText}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+      </View>
+    </View>
+  );
+};
+
+const glassOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  backdropFilter: 'blur(28px) saturate(200%)',
+  WebkitBackdropFilter: 'blur(28px) saturate(200%)',
+  backgroundColor: 'rgba(20, 24, 38, 0.42)',
+  border: '1px solid rgba(255, 255, 255, 0.15)',
+  pointerEvents: 'none',
+  borderRadius: 'inherit'
+};
+
+const dockGlassStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  backdropFilter: 'blur(35px) saturate(220%)',
+  WebkitBackdropFilter: 'blur(35px) saturate(220%)',
+  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  border: '1px solid rgba(255, 255, 255, 0.22)',
+  pointerEvents: 'none',
+  borderRadius: '24px'
+};
+
+const styles = StyleSheet.create({
+  outerScreen: { flex: 1, backgroundColor: '#05070C', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  mobileContainer: { width: '100%', maxWidth: 500, flex: 1, zIndex: 1, display: 'flex', flexDirection: 'column' },
+  clerkRegion: { flex: 0.22, borderRadius: 22, marginHorizontal: 12, marginTop: 6, position: 'relative', justifyContent: 'center', alignItems: 'center', padding: 12, overflow: 'hidden' },
+  clerkRotatedContainer: { transform: [{ rotate: '180deg' }], width: '100%', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  clerkMetaTag: { color: 'rgba(255, 255, 255, 0.6)', fontSize: 9, letterSpacing: 1.5, marginBottom: 4, fontWeight: '800' },
+  clerkResponseText: { fontSize: 26, fontWeight: '900', textAlign: 'center', lineHeight: 32 },
+  clerkKeyboardToggle: { marginTop: 8, backgroundColor: 'rgba(255,255,255,0.16)', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10 },
+  clerkKeyboardToggleText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  divider: { height: 38, marginHorizontal: 12, marginVertical: 5, borderRadius: 14, position: 'relative', overflow: 'hidden', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 },
+  liveIndicatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, zIndex: 2 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#888' },
+  liveDotActive: { backgroundColor: '#30D158' },
+  dividerContextLabel: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  locationTagPill: { backgroundColor: 'rgba(0, 0, 0, 0.45)', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' },
+  locationTagText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
+  settingsPill: { backgroundColor: 'rgba(255, 255, 255, 0.16)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  settingsPillText: { color: '#FFF', fontSize: 10, fontWeight: '700' },
+  contentRow: { flex: 1, flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginBottom: 6 },
+  userRegion: { flex: 1, display: 'flex', flexDirection: 'column' },
+  offlineNoticeBar: { backgroundColor: '#FF8A1F', borderRadius: 8, paddingVertical: 4, alignItems: 'center', marginBottom: 6 },
+  offlineNoticeText: { color: '#000', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  attentionBtn: { flex: 1, backgroundColor: '#FFD60A', paddingVertical: 7, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  attentionBtnText: { color: '#000', fontSize: 12, fontWeight: '900' },
+  gpsScanBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  gpsScanBtnText: { fontSize: 11, fontWeight: '800' },
+  kineticContainer: { height: 96, width: '100%', borderRadius: 18, overflow: 'hidden', position: 'relative', marginBottom: 6, justifyContent: 'center' },
+  companionStageRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, zIndex: 2, height: '100%' },
+  orbWrapper: { width: 78, height: 78, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 39 },
+  mochiBuddyBox: { flex: 1, paddingLeft: 10, justifyContent: 'center' },
+  mochiHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  mochiAvatarText: { fontSize: 16, fontWeight: '900' },
+  mochiMoodBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+  mochiMoodBadgeText: { fontSize: 9, fontWeight: '800' },
+  mochiSpeechText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700', lineHeight: 16 },
+  liveButton: { paddingVertical: 8, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  liveButtonOn: { backgroundColor: '#FF453A' },
+  liveButtonText: { color: '#FFFFFF', fontWeight: '900', fontSize: 12 },
+  bubblesHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  bubblesHeaderTitle: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  bubblesResetText: { fontSize: 10, fontWeight: '800' },
+  bubbleScrollRow: { gap: 6, paddingBottom: 6 },
+  floatingBubble: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16, position: 'relative', overflow: 'hidden', borderWidth: 1, borderColor: 'transparent' },
+  floatingBubbleText: { color: '#FFF', fontSize: 11, fontWeight: '700', zIndex: 2 },
+  predictivePill: { backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, marginRight: 6 },
+  predictivePillText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  customInputRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, marginTop: 2, marginBottom: 6, position: 'relative', overflow: 'hidden' },
+  customInputField: { flex: 1, color: '#FFF', fontSize: 13, paddingVertical: 9, paddingHorizontal: 12, zIndex: 2, outlineStyle: 'none' },
+  customSendBtn: { paddingHorizontal: 14, paddingVertical: 9, zIndex: 2 },
+  customSendBtnText: { fontSize: 15 },
+  transcriptBox: { borderRadius: 12, padding: 7, marginBottom: 6, position: 'relative', overflow: 'hidden' },
+  transcriptHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2, zIndex: 2 },
+  transcriptLabel: { fontSize: 10, fontWeight: '800', zIndex: 2 },
+  transcriptText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800', zIndex: 2 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, marginTop: 2 },
+  quickReplyTitle: { color: 'rgba(255, 255, 255, 0.65)', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '800' },
+  actionCardGrid: { gap: 6, paddingBottom: 16 },
+  actionCard: { borderRadius: 12, paddingVertical: 8, paddingHorizontal: 11, position: 'relative', overflow: 'hidden', borderLeftWidth: 4 },
+  actionCardText: { fontSize: 13, fontWeight: '800', zIndex: 2 },
+  previewSubtext: { fontSize: 10, marginTop: 2, fontWeight: '700', zIndex: 2 },
+  sidebarDock: { width: 54, borderRadius: 22, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  dockScroll: { paddingVertical: 8, alignItems: 'center', gap: 8, zIndex: 2 },
+  dockImageBox: { width: 42, height: 42, borderRadius: 14, borderWidth: 1.5, borderColor: 'rgba(255, 255, 255, 0.2)', overflow: 'hidden', backgroundColor: 'rgba(0, 0, 0, 0.3)', position: 'relative' },
+  dockImageBoxActive: { borderWidth: 2.5, transform: [{ scale: 1.06 }] },
+  dockEmojiBadge: { position: 'absolute', bottom: 1, right: 1, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 6, paddingHorizontal: 2 },
+  addLocationButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(255, 255, 255, 0.08)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: 'rgba(255, 255, 255, 0.35)', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  addLocationText: { color: '#FFF', fontSize: 20, fontWeight: '600' },
+  sosSidebarButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: '#FF3B30', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  sosSidebarText: { color: '#FFF', fontSize: 11, fontWeight: '900' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end', alignItems: 'center' },
+  modalContent: { width: '100%', maxWidth: 480, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '88%', position: 'relative', overflow: 'hidden' },
+  sosModalContent: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center', justifyContent: 'center' },
+  sosModalTitle: { color: '#FFF', fontSize: 26, fontWeight: '900', marginBottom: 20 },
+  sosInfoBox: { width: '100%', backgroundColor: 'rgba(0,0,0,0.45)', padding: 18, borderRadius: 16, marginBottom: 20 },
+  sosInfoText: { color: '#FFF', fontSize: 17, marginBottom: 6 },
+  sosSpeakActionBtn: { backgroundColor: '#FFF', paddingVertical: 15, paddingHorizontal: 24, borderRadius: 16, marginBottom: 14, width: '100%', alignItems: 'center' },
+  sosSpeakActionText: { color: '#FF3B30', fontSize: 17, fontWeight: '900' },
+  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', marginBottom: 8, zIndex: 2 },
+  modalSub: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, marginBottom: 14, lineHeight: 18, zIndex: 2 },
+  sectionHeader: { color: '#0A84FF', fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, zIndex: 2 },
+  languageOption: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.1)', zIndex: 2 },
+  languageOptionSelected: { backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: 8 },
+  languageOptionText: { color: '#FFF', fontSize: 14, fontWeight: '600', zIndex: 2 },
+  closeModalButton: { marginTop: 14, backgroundColor: '#007AFF', paddingVertical: 12, borderRadius: 12, alignItems: 'center', zIndex: 2 },
+  closeModalText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
+  modalTextInput: { width: '100%', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)', color: '#FFF', fontSize: 14, marginBottom: 12, zIndex: 2, outlineStyle: 'none' },
+  saveBtn: { backgroundColor: '#0A84FF', paddingVertical: 12, borderRadius: 12, alignItems: 'center', marginBottom: 8, zIndex: 2 },
+  saveBtnText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  cancelBtn: { paddingVertical: 10, alignItems: 'center', zIndex: 2, width: '100%' },
+  cancelBtnText: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 14, fontWeight: '600' }
+});

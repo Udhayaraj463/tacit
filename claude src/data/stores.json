@@ -1,0 +1,10 @@
+[
+  { "id": "cvs", "name": "便利商店", "hint": "載具・集點・加熱", "order": 1 },
+  { "id": "drink", "name": "飲料店", "hint": "冰・糖・大小", "order": 2 },
+  { "id": "breakfast", "name": "早餐店", "hint": "加蛋・加醬・飲料", "order": 3 },
+  { "id": "pharmacy", "name": "藥局", "hint": "用法用量・健保卡", "order": 4 },
+  { "id": "market", "name": "市場", "hint": "斤兩・要不要切", "order": 5 },
+  { "id": "buffet", "name": "自助餐・便當", "hint": "飯量・湯・滷汁", "order": 6 },
+  { "id": "salon", "name": "美髮店", "hint": "長度・洗頭・吹整", "order": 7 },
+  { "id": "other", "name": "任何店家", "hint": "內用・付款・袋子", "order": 8 }
+]

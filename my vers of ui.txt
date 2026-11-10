@@ -1,0 +1,2260 @@
+// @ts-nocheck
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  ScrollView, 
+  Modal,
+  ActivityIndicator,
+  Image,
+  TextInput
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import BallStudy from '../../components/ui/ball-study';
+
+export type SupportedLang = 'en-US' | 'zh-TW' | 'ta-IN' | 'ja-JP';
+export type MochiBotMode = 'pulse' | 'echo';
+
+const PULSE_SKY_BLUE = '#38BDF8';
+const ECHO_LIGHT_GREEN = '#4ADE80';
+
+// ============================================================================
+// 🐼 MOCHI VIDEO (.MP4 / .WEBM) & GIF CONFIGURATION (ALWAYS MUTED)
+// You can upload files directly inside the app via "🎨 Edit Spot" -> "📁 Upload"
+// OR put your .mp4 / .gif in ../../Icons/ and use require('../../Icons/file.mp4')
+// ============================================================================
+export interface MochiMediaConfig {
+  idleFloatingMedia: any;   // Default floating/listening video or GIF
+  helloGreetingMedia: any;  // Plays for 2.2s when you click Mochi
+  speakingMedia: any;       // Plays while Gemini Ursa voice is speaking
+  voiceName: string;        // Locked to Gemini 'Ursa' voice
+}
+
+const DEFAULT_MOCHI_MEDIA: MochiMediaConfig = {
+  idleFloatingMedia: 'https://media.giphy.com/media/3o7bu3XilJ5BOiSGic/giphy.gif',
+  helloGreetingMedia: 'https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif',
+  speakingMedia: 'https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif',
+  voiceName: 'Ursa'
+};
+
+// Universal Muted Video / GIF Renderer (Works with .mp4, .webm, .mov, .gif, data:video, blob:, or require())
+const MochiMediaPlayer: React.FC<{ source: any; style?: any }> = ({ source, style }) => {
+  let uri = '';
+  if (typeof source === 'string') {
+    uri = source;
+  } else if (source && typeof source === 'object' && source.uri) {
+    uri = source.uri;
+  } else if (source) {
+    const resolved = Image.resolveAssetSource ? Image.resolveAssetSource(source) : null;
+    uri = resolved?.uri || String(source);
+  }
+
+  const isVideo =
+    typeof uri === 'string' &&
+    (/\.(mp4|webm|mov|ogg)(\?.*)?$/i.test(uri) || uri.startsWith('data:video/') || uri.includes('video'));
+
+  if (isVideo && typeof document !== 'undefined') {
+    return (
+      <video
+        key={uri}
+        src={uri}
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          pointerEvents: 'none',
+          backgroundColor: '#FFF',
+          ...(style || {})
+        }}
+      />
+    );
+  }
+
+  return (
+    <Image
+      source={typeof source === 'string' ? { uri: source } : source}
+      style={[{ width: '100%', height: '100%', resizeMode: 'cover' }, style]}
+    />
+  );
+};
+
+interface LangMeta {
+  code: SupportedLang;
+  name: string;
+  short: string;
+  recognitionCode: string;
+  ttsLang: string;
+}
+
+export const LANGUAGE_LIST: LangMeta[] = [
+  { code: 'en-US', name: 'English (US)', short: 'English', recognitionCode: 'en-US', ttsLang: 'en-US' },
+  { code: 'zh-TW', name: '繁體中文 (Traditional Chinese)', short: '中文', recognitionCode: 'zh-TW', ttsLang: 'zh-TW' },
+  { code: 'ta-IN', name: 'தமிழ் (Tamil)', short: 'தமிழ்', recognitionCode: 'ta-IN', ttsLang: 'ta-IN' },
+  { code: 'ja-JP', name: '日本語 (Japanese)', short: '日本語', recognitionCode: 'ja-JP', ttsLang: 'ja-JP' }
+];
+
+export interface ActionOption {
+  id: string;
+  labelUser: string;
+  labelClerk: string;
+  payloadType?: string;
+}
+
+export interface VenueOptionItem {
+  id: string;
+  category?: string;
+  labels: Record<SupportedLang, string>;
+  clerkText: Record<SupportedLang, string>;
+}
+
+export interface VenueData {
+  id: string;
+  nameKey: string;
+  short: string;
+  emoji?: string;
+  iconImage: any;
+  bgImage: any;        // Static location background (Hospital, 7-Eleven, Cafe, etc.)
+  mochiVenueMedia?: any; // Floating Mochi's location-specific GIF/Video!
+  accent: string;
+  vibeQuote?: string;
+  options: VenueOptionItem[];
+}
+
+interface SOSProfile {
+  name: string;
+  blood: string;
+  allergies: string;
+  contact: string;
+  note: string;
+}
+
+const DEFAULT_SOS: SOSProfile = {
+  name: 'Udhayaraj (Raj)',
+  blood: 'O+',
+  allergies: 'None',
+  contact: '+886 900 000 000',
+  note: 'I am having a medical emergency and cannot speak. Please read my screen.'
+};
+
+const COLOR_SWATCHES = ['#38BDF8', '#4ADE80', '#FF8A1F', '#FF453A', '#BF5AF2', '#5E5CE6', '#FFD60A', '#00C7BE'];
+
+const UI_STRINGS: Record<SupportedLang, Record<string, string>> = {
+  'en-US': {
+    echoViewTag: 'ECHO MODE • 180° PARTNER VIEW',
+    pulseViewTag: 'PULSE MODE',
+    standby: 'PULSE STANDBY',
+    live: 'PULSE LIVE',
+    startLive: '🎙 Start Live Listening',
+    endLive: '🔴 Pause Listening',
+    understoodIntent: 'Mochi Decoded:',
+    quickActions: 'Smart Replies',
+    facingClerkPrefix: 'Ursa Speaks:',
+    languages: '⚙ Languages',
+    floatingBubblesTitle: 'Quick Reactions',
+    welcomeDefault: 'Hello! 👋',
+    addLocationModalTitle: '✨ Add New Place',
+    addLocationModalSub: 'Type any spot ("Library", "Night Market") and Mochi will craft your cards!',
+    addLocationPlaceholder: 'e.g. University Library Counter',
+    addLocationAnalyzeBtn: '✨ Craft Cards with Mochi',
+    addLocationAnalyzingBtn: 'Mochi is crafting...',
+    cancel: 'Close',
+    reset: '↺ Reset',
+    liveLocationText: 'Active Spot:',
+    pulseTypePlaceholder: 'Type to Mochi — Gemini Ursa voice will speak for you...',
+    echoTypePlaceholder: 'Type here to speak aloud or send back to Pulse Mode...',
+    introMsg: 'Hi! I communicate using Mochi. Please read Echo Mode on my screen.',
+    attentionBtn: '🔔 Get Attention',
+    scanGpsBtn: '🛰️ Scan Spot',
+    editVenueBtn: '🎬 Upload GIF/Video',
+    sosBtn: 'SOS',
+    openEchoBotBtn: '💬 Tap to Open Mochi (Echo Mode)',
+    offlineNotice: '⚠️ Offline Mode — Using Saved Memory',
+    sosTitle: 'MEDICAL EMERGENCY',
+    sosSpeak: '🔊 Announce Emergency (Ursa Voice)',
+    pulseModeBtn: '💙 Pulse Mode (Me)',
+    echoModeBtn: '💚 Echo Mode (180°)',
+    mochiGreetingTitle: 'Hi! I am Mochi 🐼✨',
+    mochiSpeakBtn: '🔊 Speak with Gemini Ursa Voice',
+    mochiEchoSendBtn: '💚 Send & Speak to Partner',
+    translatingText: 'Mochi & Ursa preparing voice...'
+  },
+  'zh-TW': {
+    echoViewTag: 'ECHO 模式 • 180° 夥伴視角',
+    pulseViewTag: 'PULSE 模式',
+    standby: 'PULSE 待命',
+    live: 'PULSE 即時聆聽',
+    startLive: '🎙 啟動即時聆聽',
+    endLive: '🔴 暫停聆聽',
+    understoodIntent: 'Mochi 已解碼對方意思：',
+    quickActions: '智慧快選回應',
+    facingClerkPrefix: 'Ursa 發音：',
+    languages: '⚙ 語言設定',
+    floatingBubblesTitle: '即時心情反應',
+    welcomeDefault: '您好！👋',
+    addLocationModalTitle: '✨ 新增探索地點',
+    addLocationModalSub: '輸入任何地點（如「圖書館」、「夜市」），Mochi 會立刻幫你準備專屬卡片！',
+    addLocationPlaceholder: '例如：大學圖書館借書櫃台',
+    addLocationAnalyzeBtn: '✨ 讓 Mochi 生成卡片',
+    addLocationAnalyzingBtn: 'Mochi 正在生成中...',
+    cancel: '關閉',
+    reset: '↺ 重置',
+    liveLocationText: '目前場景：',
+    pulseTypePlaceholder: '輸入文字，讓 Mochi 用 Gemini Ursa 聲音幫你說出來...',
+    echoTypePlaceholder: '請在此輸入您的回覆，或直接播放語音...',
+    introMsg: '您好！我透過 Mochi 助理溝通，請看畫面上的文字。',
+    attentionBtn: '🔔 禮貌提醒',
+    scanGpsBtn: '🛰️ 偵測地點',
+    editVenueBtn: '🎬 上傳動圖/影片',
+    sosBtn: 'SOS',
+    openEchoBotBtn: '💬 點此開啟 Mochi 回覆 (Echo Mode)',
+    offlineNotice: '⚠️ 離線模式 — 使用本地記憶庫',
+    sosTitle: '緊急醫療求助',
+    sosSpeak: '🔊 播放緊急語音求助 (Ursa)',
+    pulseModeBtn: '💙 Pulse 模式 (我)',
+    echoModeBtn: '💚 Echo 模式 (180° 對方)',
+    mochiGreetingTitle: '嗨！我是 Mochi 🐼✨',
+    mochiSpeakBtn: '🔊 用 Gemini Ursa 聲音說出來',
+    mochiEchoSendBtn: '💚 傳送並發音回覆',
+    translatingText: 'Mochi 正在準備 Ursa 語音...'
+  },
+  'ta-IN': {
+    echoViewTag: 'ECHO முறை • 180° பார்வை',
+    pulseViewTag: 'PULSE முறை',
+    standby: 'PULSE காத்திருப்பு',
+    live: 'PULSE நேரலை',
+    startLive: '🎙 நேரலையைத் தொடங்கு',
+    endLive: '🔴 நிறுத்து',
+    understoodIntent: 'மோச்சி புரிந்துகொண்டது:',
+    quickActions: 'உடனடி பதில்கள்',
+    facingClerkPrefix: 'Ursa குரல்:',
+    languages: '⚙ மொழிகள்',
+    floatingBubblesTitle: 'உடனடி உணர்வுகள்',
+    welcomeDefault: 'வணக்கம்! 👋',
+    addLocationModalTitle: '✨ புதிய இடத்தை சேர்க்கவும்',
+    addLocationModalSub: 'எந்த இடத்தையும் உள்ளிடவும், மோச்சி அட்டைகளை உருவாக்கும்!',
+    addLocationPlaceholder: 'எ.கா. நூலக கவுண்டர்',
+    addLocationAnalyzeBtn: '✨ அட்டைகளை உருவாக்கு',
+    addLocationAnalyzingBtn: 'உருவாக்குகிறது...',
+    cancel: 'மூடு',
+    reset: '↺ மீட்டமை',
+    liveLocationText: 'தற்போதைய இடம்:',
+    pulseTypePlaceholder: 'மோச்சியிடம் தட்டச்சு செய்க — Ursa குரலில் பேசும்...',
+    echoTypePlaceholder: 'உங்கள் பதிலை இங்கே தட்டச்சு செய்க...',
+    introMsg: 'வணக்கம்! நான் பேச மோச்சியைப் பயன்படுத்துகிறேன்.',
+    attentionBtn: '🔔 கவனம்',
+    scanGpsBtn: '🛰️ இடம் தேடு',
+    editVenueBtn: '🎬 GIF/வீடியோ',
+    sosBtn: 'SOS',
+    openEchoBotBtn: '💬 மோச்சி மூலம் பதிலளிக்கவும் (Echo)',
+    offlineNotice: '⚠️ ஆஃப்லைன் முறை',
+    sosTitle: 'மருத்துவ அவசரம்',
+    sosSpeak: '🔊 அவசர ஆடியோவை இயக்கு',
+    pulseModeBtn: '💙 Pulse முறை (நான்)',
+    echoModeBtn: '💚 Echo முறை (180°)',
+    mochiGreetingTitle: 'வணக்கம்! நான் மோச்சி 🐼✨',
+    mochiSpeakBtn: '🔊 Gemini Ursa குரலில் பேசு',
+    mochiEchoSendBtn: '💚 பதிலை அனுப்பு',
+    translatingText: 'மொழிபெயர்க்கிறது...'
+  },
+  'ja-JP': {
+    echoViewTag: 'ECHO モード • 180° パートナー表示',
+    pulseViewTag: 'PULSE モード',
+    standby: 'PULSE 待機中',
+    live: 'PULSE ライブ中',
+    startLive: '🎙 ライブ聞き取り開始',
+    endLive: '🔴 一時停止',
+    understoodIntent: 'モチの聞き取り結果：',
+    quickActions: 'スマート返答',
+    facingClerkPrefix: 'Ursa 音声：',
+    languages: '⚙ 言語設定',
+    floatingBubblesTitle: 'クイックリアクション',
+    welcomeDefault: 'こんにちは！👋',
+    addLocationModalTitle: '✨ 新しい場所を追加',
+    addLocationModalSub: '場所を入力すると、モチが専用カードを作ります！',
+    addLocationPlaceholder: '例：図書館の貸出カウンター',
+    addLocationAnalyzeBtn: '✨ AIでカードを作成',
+    addLocationAnalyzingBtn: 'モチが作成中...',
+    cancel: '閉じる',
+    reset: '↺ リセット',
+    liveLocationText: '現在のスポット：',
+    pulseTypePlaceholder: 'メッセージを入力（Gemini Ursaの声で話します）...',
+    echoTypePlaceholder: 'こちらに返答を入力してください...',
+    introMsg: 'こんにちは！画面の文字でコミュニケーションしています。',
+    attentionBtn: '🔔 呼びかけ',
+    scanGpsBtn: '🛰️ 現在地スキャン',
+    editVenueBtn: '🎬 動画/GIF変更',
+    sosBtn: 'SOS',
+    openEchoBotBtn: '💬 タップしてモチで返答 (Echo Mode)',
+    offlineNotice: '⚠️ オフラインモード',
+    sosTitle: '緊急医療サポート',
+    sosSpeak: '🔊 緊急音声を再生 (Ursa)',
+    pulseModeBtn: '💙 Pulse モード (自分)',
+    echoModeBtn: '💚 Echo モード (180° 相手)',
+    mochiGreetingTitle: 'こんにちは！モチです 🐼✨',
+    mochiSpeakBtn: '🔊 Gemini Ursaの声で話す',
+    mochiEchoSendBtn: '💚 返答を送信して発音',
+    translatingText: 'Ursa音声を準備中...'
+  }
+};
+
+interface ChitChatBubble {
+  id: string;
+  labels: Record<SupportedLang, string>;
+  clerkText: Record<SupportedLang, string>;
+  isCore?: boolean;
+  followUps?: ChitChatBubble[];
+}
+
+const CORE_REACTIONS: ChitChatBubble[] = [
+  {
+    id: 'core_yes',
+    isCore: true,
+    labels: { 'en-US': 'Yes ✅', 'zh-TW': '是 / 好 ✅', 'ta-IN': 'ஆம் ✅', 'ja-JP': 'はい ✅' },
+    clerkText: { 'en-US': 'Yes, please!', 'zh-TW': '是的，麻煩您了！', 'ta-IN': 'ஆம், தயவுசெய்து!', 'ja-JP': 'はい、お願いします！' }
+  },
+  {
+    id: 'core_no',
+    isCore: true,
+    labels: { 'en-US': 'No thanks ❌', 'zh-TW': '不用謝謝 ❌', 'ta-IN': 'இல்லை நன்றி ❌', 'ja-JP': '大丈夫です ❌' },
+    clerkText: { 'en-US': 'No, thank you!', 'zh-TW': '不用了，謝謝您！', 'ta-IN': 'இல்லை, நன்றி!', 'ja-JP': 'いいえ、結構です！' }
+  },
+  {
+    id: 'core_thanks',
+    isCore: true,
+    labels: { 'en-US': 'Thank you 🙏', 'zh-TW': '非常感謝 🙏', 'ta-IN': 'மிக்க நன்றி 🙏', 'ja-JP': 'ありがとう 🙏' },
+    clerkText: { 'en-US': 'Thank you so much! Have a wonderful day.', 'zh-TW': '非常謝謝您！祝您有美好的一天。', 'ta-IN': 'மிக்க நன்றி!', 'ja-JP': 'ありがとうございます！良い一日を。' }
+  }
+];
+
+const CHIT_CHAT_SYSTEM: ChitChatBubble[] = [
+  ...CORE_REACTIONS,
+  {
+    id: 'cc_noisy',
+    labels: { 'en-US': 'Too Loud 🔊', 'zh-TW': '環境太吵 🔊', 'ta-IN': 'அதிக சத்தம் 🔊', 'ja-JP': '周りが騒がしい 🔊' },
+    clerkText: { 
+      'en-US': 'It is a bit loud here! Could you tap Echo Mode on my screen to type your message to Mochi?', 
+      'zh-TW': '這裡稍微有點吵，可以請您點一下畫面上的「Echo Mode」打字跟我的 Mochi 助理說嗎？謝謝！', 
+      'ta-IN': 'இங்கு சத்தம் அதிகமாக உள்ளது. திரையில் தட்டச்சு செய்ய முடியுமா?', 
+      'ja-JP': '周りが騒がしいので、画面の「Echo Mode」から文字を入力していただけますか？' 
+    }
+  },
+  {
+    id: 'cc_speech_issue',
+    labels: { 'en-US': 'AAC User 🗣️✨', 'zh-TW': '看螢幕溝通 🗣️✨', 'ta-IN': 'திரையைப் பார்க்கவும் 🗣️✨', 'ja-JP': '画面で会話 🗣️✨' },
+    clerkText: { 'en-US': 'I am non-verbal and use Mochi to chat. Please read Echo Mode on my screen!', 'zh-TW': '我不方便說話，都是透過 Mochi 語音助理跟您溝通喔！請看我的螢幕。', 'ta-IN': 'நான் பேச இந்த செயலியைப் பயன்படுத்துகிறேன்.', 'ja-JP': '話すことができないため、モチと一緒にこの画面で会話しています！' }
+  },
+  {
+    id: 'cc_fine',
+    labels: { 'en-US': 'Doing great 😄', 'zh-TW': '狀態超好 😄', 'ta-IN': 'மிக நன்று 😄', 'ja-JP': '最高に元気 😄' },
+    clerkText: { 'en-US': "I'm doing awesome today, thank you for asking!", 'zh-TW': '我今天狀態超棒的，謝謝您的關心！', 'ta-IN': 'நான் இன்று மிக நன்றாக இருக்கிறேன்!', 'ja-JP': '今日はとても元気です！ありがとうございます！' }
+  },
+  {
+    id: 'cc_bad',
+    labels: { 'en-US': 'Unwell 😷', 'zh-TW': '身體不適 😷', 'ta-IN': 'உடல்நிலை சரியில்லை 😷', 'ja-JP': '体調不良 😷' },
+    clerkText: { 'en-US': 'I am not feeling well right now and need a little help.', 'zh-TW': '我現在身體不太舒服，需要一點協助。', 'ta-IN': 'எனக்கு உடல்நிலை சரியில்லை.', 'ja-JP': '今あまり体調が良くなくて、少し助けが必要です。' },
+    followUps: [
+      {
+        id: 'fu_sick',
+        labels: { 'en-US': 'Fever & Pain 🤒', 'zh-TW': '發燒與劇痛 🤒', 'ta-IN': 'காய்ச்சல் & வலி 🤒', 'ja-JP': '発熱と痛み 🤒' },
+        clerkText: { 'en-US': 'I have a fever and strong body pain.', 'zh-TW': '我有點發燒而且身體很痛。', 'ta-IN': 'கடுமையான காய்ச்சல் மற்றும் வலி உள்ளது.', 'ja-JP': '熱があって体も強く痛みます。' }
+      },
+      {
+        id: 'fu_tired',
+        labels: { 'en-US': 'Dizzy & Weak 💫', 'zh-TW': '頭暈虛弱 💫', 'ta-IN': 'தலைச்சுற்றல் 💫', 'ja-JP': 'めまい 💫' },
+        clerkText: { 'en-US': 'I feel very dizzy and need to sit down.', 'zh-TW': '我覺得很頭暈，需要坐下來休息一下。', 'ta-IN': 'எனக்கு தலைச்சுற்றலாக உள்ளது.', 'ja-JP': 'めまいがするので少し座って休みたいです。' }
+      }
+    ]
+  }
+];
+
+// ============================================================================
+// 📍 VENUES: Main Background stays your original static location image,
+// while `mochiVenueMedia` changes ONLY the floating Mochi bot's GIF/Video!
+// ============================================================================
+const DEFAULT_VENUES: VenueData[] = [
+  {
+    id: 'hospital',
+    nameKey: 'Hospital & Clinic',
+    short: 'Hospital',
+    emoji: '🏥',
+    iconImage: require('../../Icons/Hospital icon.webp'),
+    bgImage: require('../../Icons/Hospital icon.webp'),
+    mochiVenueMedia: 'https://media.giphy.com/media/l2JhtKtDWYNKdRpoA/giphy.gif',
+    accent: '#38BDF8',
+    vibeQuote: 'Dr. Mochi on duty! Take a deep breath, I have your medical cards ready. 💙',
+    options: [
+      { id: 'h_reg_1', category: 'reg', labels: { 'en-US': '🪪 Here is my Health ID Card', 'zh-TW': '🪪 這是我的健保卡與證件', 'ta-IN': '🪪 மருத்துவ அட்டை இதோ', 'ja-JP': '🪪 健康保険証を提示します' }, clerkText: { 'en-US': 'Here is my Health Insurance Card and ID.', 'zh-TW': '您好，這是我的健保卡與身分證件。', 'ta-IN': 'மருத்துவக் காப்பீட்டு அட்டை இதோ.', 'ja-JP': '健康保険証と身分証を提出いたします。' } },
+      { id: 'h_triage_1', category: 'triage', labels: { 'en-US': '🚨 Severe pain / Need urgent help', 'zh-TW': '🚨 劇烈疼痛 / 需要緊急協助', 'ta-IN': '🚨 கடுமையான வலி / அவசரம்', 'ja-JP': '🚨 激しい痛み・緊急処置希望' }, clerkText: { 'en-US': 'I am experiencing severe pain and need urgent medical evaluation.', 'zh-TW': '我現在感到劇烈疼痛，需要緊急醫療評估與協助。', 'ta-IN': 'மார்பு வலி மற்றும் மூச்சு திணறல் அதிகமாக உள்ளது.', 'ja-JP': '激しい痛みがあり、緊急の診察をお願いします。' } },
+      { id: 'h_dental_1', category: 'dental', labels: { 'en-US': '🦷 Toothache / Dental checkup', 'zh-TW': '🦷 牙齒痛 / 預約牙科檢查', 'ta-IN': '🦷 பல் வலி / பரிசோதனை', 'ja-JP': '🦷 歯の痛み・歯科検診' }, clerkText: { 'en-US': 'I am here for a dental checkup and have molar sensitivity.', 'zh-TW': '您好，我來進行牙科檢查，後排臼齒咬合時會痛。', 'ta-IN': 'பின்பல் பகுதியில் வலி உள்ளது.', 'ja-JP': '歯科検診に来ました。奥歯に痛みがあります。' } }
+    ]
+  },
+  {
+    id: 'convenience',
+    nameKey: '7-Eleven & Mart',
+    short: '7-Eleven',
+    emoji: '🏪',
+    iconImage: require('../../Icons/7 eleven icon.webp'),
+    bgImage: require('../../Icons/7 eleven icon.webp'),
+    mochiVenueMedia: 'https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif',
+    accent: '#FF8A1F',
+    vibeQuote: 'Snack run! Need it microwaved or paying with Apple Pay? 🍙✨',
+    options: [
+      { id: 'cv_1', labels: { 'en-US': '📱 Apple Pay / Contactless Card', 'zh-TW': '📱 Apple Pay / 感應刷卡', 'ta-IN': '📱 Apple Pay / கார்டு', 'ja-JP': '📱 Apple Pay / タッチ決済' }, clerkText: { 'en-US': 'I will pay with Apple Pay, please.', 'zh-TW': '麻煩使用 Apple Pay 感應結帳，謝謝！', 'ta-IN': 'Apple Pay மூலம் பணம் செலுத்துகிறேன்.', 'ja-JP': 'Apple Payのタッチ決済でお願いします。' } },
+      { id: 'cv_2', labels: { 'en-US': '🛍️ No bag needed + Heat this up', 'zh-TW': '🛍️ 不用袋子 + 請幫我微波加熱', 'ta-IN': '🛍️ பை வேண்டாம் + சூடாக்கவும்', 'ja-JP': '🛍️ 袋不要 + 温めお願いします' }, clerkText: { 'en-US': 'No bag needed, and could you please heat this up for me?', 'zh-TW': '不用購物袋，另外這個麻煩請幫我微波加熱，謝謝您！', 'ta-IN': 'பை தேவையில்லை, இதை சூடாக்கவும்.', 'ja-JP': '袋は不要です。こちらをレンジで温めていただけますか？' } },
+      { id: 'cv_3', labels: { 'en-US': '📲 Scan Cloud Receipt Barcode', 'zh-TW': '📲 刷手機條碼載具', 'ta-IN': '📲 உறுப்பினர் பார் குறியீடு', 'ja-JP': '📲 ポイント・バーコード提示' }, clerkText: { 'en-US': 'Please scan my mobile receipt barcode.', 'zh-TW': '發票請幫我存手機條碼載具，謝謝！', 'ta-IN': 'உறுப்பினர் குறியீட்டை ஸ்கேன் செய்யவும்.', 'ja-JP': 'こちらのバーコードをスキャンしてください。' } }
+    ]
+  },
+  {
+    id: 'cafe',
+    nameKey: 'Cafe & Bubble Tea',
+    short: 'Cafe',
+    emoji: '☕',
+    iconImage: require('../../Icons/cafe icon.jpg'),
+    bgImage: require('../../Icons/cafe icon.jpg'),
+    mochiVenueMedia: 'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif',
+    accent: '#D4A373',
+    vibeQuote: 'Boba & coffee time! Zero sugar, less ice, good vibes only!🧋🎶',
+    options: [
+      { id: 'cf_1', labels: { 'en-US': '🧊 Sugar-Free, Less Ice (0% / 30%)', 'zh-TW': '🧊 無糖、微冰 (0% / 30%)', 'ta-IN': '🧊 சர்க்கரை இல்லை, குறைந்த ஐஸ்', 'ja-JP': '🧊 無糖・氷少なめ' }, clerkText: { 'en-US': 'Could I get this sugar-free and with less ice, please?', 'zh-TW': '這杯麻煩幫我做無糖、微冰，謝謝！', 'ta-IN': 'சர்க்கரை இல்லாமல் குறைந்த ஐஸ் வைக்கவும்.', 'ja-JP': '無糖、氷少なめで作っていただけますか？' } },
+      { id: 'cf_2', labels: { 'en-US': '🥛 Swap to Oat / Soy Milk', 'zh-TW': '🥛 換成燕麥奶 / 豆漿', 'ta-IN': '🥛 ஓட்ஸ் பாலாக மாற்றவும்', 'ja-JP': '🥛 オーツミルク・豆乳に変更' }, clerkText: { 'en-US': 'Please substitute the milk with oat milk or soy milk.', 'zh-TW': '麻煩幫我把鮮奶換成燕麥奶或無糖豆漿，謝謝！', 'ta-IN': 'ஓட்ஸ் பால் சேர்க்கவும்.', 'ja-JP': 'ミルクをオーツミルクまたは豆乳に変更お願いします。' } }
+    ]
+  },
+  {
+    id: 'restaurant',
+    nameKey: 'Dining & Fast Food',
+    short: 'Dining',
+    emoji: '🍱',
+    iconImage: require('../../Icons/Resturant icon.jpg'),
+    bgImage: require('../../Icons/Resturant icon.jpg'),
+    mochiVenueMedia: 'https://media.giphy.com/media/3oz8xBwn8AU6Bp1hKM/giphy.gif',
+    accent: '#FF453A',
+    vibeQuote: 'Chef Mochi is ready! Let’s order something delicious. 🍜😋',
+    options: [
+      { id: 'rs_1', labels: { 'en-US': '🍽️ Dine-in for one, please', 'zh-TW': '🍽️ 內用一位，謝謝', 'ta-IN': '🍽️ இங்கேயே சாப்பிடுகிறேன்', 'ja-JP': '🍽️ 店内で食べます（1名）' }, clerkText: { 'en-US': 'Dine-in for one person, thank you!', 'zh-TW': '您好，內用一位，謝謝！', 'ta-IN': 'இங்கேயே உட்கார்ந்து உண்கிறேன்.', 'ja-JP': '1名、店内で飲食をお願いします。' } },
+      { id: 'rs_2', labels: { 'en-US': '🥡 Takeout / To-go box', 'zh-TW': '🥡 外帶打包，謝謝', 'ta-IN': '🥡 பார்சல் (Takeout)', 'ja-JP': '🥡 持ち帰り（テイクアウト）' }, clerkText: { 'en-US': 'I would like this for takeout, please.', 'zh-TW': '餐點麻煩幫我做外帶，謝謝您！', 'ta-IN': 'பார்சல் செய்து தரவும்.', 'ja-JP': 'お持ち帰りでお願いします。' } }
+    ]
+  },
+  {
+    id: 'transit',
+    nameKey: 'Metro & Train Station',
+    short: 'Transit',
+    emoji: '🚆',
+    iconImage: require('../../Icons/transport icon.jpg'),
+    bgImage: require('../../Icons/transport icon.jpg'),
+    mochiVenueMedia: 'https://media.giphy.com/media/l0HlOaQcLJ2hHpYdy/giphy.gif',
+    accent: '#5E5CE6',
+    vibeQuote: 'All aboard! Mochi Express is ready for takeoff. 🚄🌟',
+    options: [
+      { id: 'tr_1', labels: { 'en-US': '💳 Top up $500 on EasyCard', 'zh-TW': '💳 悠遊卡加值 500 元', 'ta-IN': '💳 அட்டையில் $500 ரீசார்ஜ்', 'ja-JP': '💳 ICカードに500元チャージ' }, clerkText: { 'en-US': 'Please top up 500 dollars onto my EasyCard.', 'zh-TW': '不好意思，這張悠遊卡麻煩幫我加值 500 元。', 'ta-IN': 'அட்டையில் 500 ரீசார்ஜ் செய்யவும்.', 'ja-JP': 'こちらの交通カードに500元チャージをお願いします。' } },
+      { id: 'tr_2', labels: { 'en-US': '🎫 One ticket to Taipei (Next train)', 'zh-TW': '🎫 一張往台北，最近一班車', 'ta-IN': '🎫 தைபேக்கு ஒரு டிக்கெட்', 'ja-JP': '🎫 台北まで1枚（次の電車）' }, clerkText: { 'en-US': 'One ticket to Taipei on the next available train, please.', 'zh-TW': '麻煩買一張到台北的車票，最近的一班車就可以，謝謝！', 'ta-IN': 'அடுத்த ரயிலில் ஒரு டிக்கெட் வேண்டும்.', 'ja-JP': '一番早い列車で、台北まで大人1枚お願いします。' } }
+    ]
+  },
+  {
+    id: 'library',
+    nameKey: 'Library & Study Center',
+    short: 'Library',
+    emoji: '📚',
+    iconImage: 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=200&q=80',
+    bgImage: 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=1200&q=80',
+    mochiVenueMedia: 'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif',
+    accent: '#4ADE80',
+    vibeQuote: 'Shhh... Scholar Mochi activated! Let’s ace that research. 📖🤫',
+    options: [
+      { id: 'lib_1', labels: { 'en-US': '📕 Borrow / Check out these books', 'zh-TW': '📕 我想要借這幾本書', 'ta-IN': '📕 இந்த புத்தகங்களை இரவல் வாங்க', 'ja-JP': '📕 これらの本を借りたいです' }, clerkText: { 'en-US': 'Hi! I would like to check out these books. Here is my ID card.', 'zh-TW': '您好，我想要借這幾本書，這是我的學生證/借書證。', 'ta-IN': 'இந்த புத்தகங்களை இரவல் வாங்க விரும்புகிறேன்.', 'ja-JP': 'これらの本を借りたいです。こちらが利用カードです。' } },
+      { id: 'lib_2', labels: { 'en-US': '🔌 Where are the power outlets?', 'zh-TW': '🔌 請問有插座的自習區在哪裡？', 'ta-IN': '🔌 மின்சார வசதி உள்ள இடம் எங்கே?', 'ja-JP': '🔌 コンセント付きの自習席はどこですか？' }, clerkText: { 'en-US': 'Could you tell me which floor has study seats with power outlets?', 'zh-TW': '不好意思，請問有提供插座的筆電自習區在幾樓呢？', 'ta-IN': 'மின்சார வசதி உள்ள இடம் எங்கே உள்ளது?', 'ja-JP': 'コンセントが使える自習スペースは何階にありますか？' } }
+    ]
+  }
+];
+
+// Helper to convert Gemini's 24kHz PCM Base64 audio into a playable browser WAV Blob
+const createWavUrlFromPcmBase64 = (base64Pcm: string, sampleRate = 24000): string => {
+  const binaryStr = atob(base64Pcm);
+  const len = binaryStr.length;
+  const buffer = new ArrayBuffer(44 + len);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + len, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, len, true);
+
+  for (let i = 0; i < len; i++) {
+    view.setUint8(44 + i, binaryStr.charCodeAt(i));
+  }
+
+  const blob = new Blob([buffer], { type: 'audio/wav' });
+  return URL.createObjectURL(blob);
+};
+
+export const CounterConversationScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
+  const [isOnline, setIsOnline] = useState(true);
+
+  const [clerkLangCode, setClerkLangCode] = useState<SupportedLang>('zh-TW');
+  const [userLangCode, setUserLangCode] = useState<SupportedLang>('en-US');
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+
+  const [venues, setVenues] = useState<VenueData[]>(DEFAULT_VENUES);
+  const [activeVenue, setActiveVenue] = useState<VenueData>(DEFAULT_VENUES[0]);
+  const [selectedHospitalDept, setSelectedHospitalDept] = useState<string>('all');
+
+  // Floating Mochi Hub States
+  const [isMochiHubOpen, setIsMochiHubOpen] = useState<boolean>(false);
+  const [mochiBotMode, setMochiBotMode] = useState<MochiBotMode>('pulse');
+  const [mochiGifPhase, setMochiGifPhase] = useState<'idle' | 'hello' | 'venue' | 'speaking'>('idle');
+  const [mochiMedia, setMochiMedia] = useState<MochiMediaConfig>(DEFAULT_MOCHI_MEDIA);
+  const [mochiInputText, setMochiInputText] = useState<string>('');
+
+  // Customization Studio States
+  const [isEditVenueModalOpen, setIsEditVenueModalOpen] = useState<boolean>(false);
+  const [editVenueName, setEditVenueName] = useState<string>('');
+  const [editVenueShort, setEditVenueShort] = useState<string>('');
+  const [editVenueEmoji, setEditVenueEmoji] = useState<string>('✨');
+  const [editVenueAccent, setEditVenueAccent] = useState<string>(PULSE_SKY_BLUE);
+  const [editVenueBgUrl, setEditVenueBgUrl] = useState<string>('');
+  const [editVenueMochiMediaUrl, setEditVenueMochiMediaUrl] = useState<string>('');
+
+  // Editable SOS State
+  const [sosProfile, setSosProfile] = useState<SOSProfile>(DEFAULT_SOS);
+  const [isEditingSOS, setIsEditingSOS] = useState<boolean>(false);
+
+  const [mochiMood, setMochiMood] = useState<'happy' | 'listening' | 'thinking' | 'speaking' | 'excited'>('happy');
+  const [mochiSpeech, setMochiSpeech] = useState<string>('Tap me anytime to speak with Gemini Ursa voice! 🐼💙');
+
+  const [isAddLocationModalOpen, setIsAddLocationModalOpen] = useState<boolean>(false);
+  const [newLocationInput, setNewLocationInput] = useState<string>('');
+  
+  const [isGeneratingVenue, setIsGeneratingVenue] = useState<boolean>(false);
+  const [isAutoDetectingLocation, setIsAutoDetectingLocation] = useState<boolean>(false);
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+
+  const [isScreenFlashing, setIsScreenFlashing] = useState<boolean>(false);
+  const [isSOSModalOpen, setIsSOSModalOpen] = useState<boolean>(false);
+
+  const [savedPhrases, setSavedPhrases] = useState<string[]>([]);
+  const [predictiveSuggestions, setPredictiveSuggestions] = useState<string[]>([]);
+
+  const [isLiveActive, setIsLiveActive] = useState<boolean>(false);
+  const [liveStreamText, setLiveStreamText] = useState<string>('');
+  const [liveHeardTranslated, setLiveHeardTranslated] = useState<string>('');
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [audioLevel, setAudioLevel] = useState<number>(1.0);
+
+  const [activeBubbles, setActiveBubbles] = useState<ChitChatBubble[]>(CHIT_CHAT_SYSTEM);
+
+  const t = UI_STRINGS[userLangCode] || UI_STRINGS['en-US'];
+  const [clerkDisplayMessage, setClerkDisplayMessage] = useState<string>(t.welcomeDefault);
+
+  // Refs for zero-refresh updates
+  const clerkLangRef = useRef<SupportedLang>(clerkLangCode);
+  const userLangRef = useRef<SupportedLang>(userLangCode);
+  const activeVenueRef = useRef<VenueData>(activeVenue);
+  const venuesRef = useRef<VenueData[]>(venues);
+  const isLiveActiveRef = useRef<boolean>(isLiveActive);
+  const mochiMediaRef = useRef<MochiMediaConfig>(mochiMedia);
+  const helloTimerRef = useRef<any>(null);
+  const activeAudioObjRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => { clerkLangRef.current = clerkLangCode; }, [clerkLangCode]);
+  useEffect(() => { userLangRef.current = userLangCode; }, [userLangCode]);
+  useEffect(() => { mochiMediaRef.current = mochiMedia; }, [mochiMedia]);
+  useEffect(() => { 
+    activeVenueRef.current = activeVenue;
+    setMochiSpeech(activeVenue.vibeQuote || `Switched to ${activeVenue.nameKey}! Floating Mochi updated.`);
+  }, [activeVenue]);
+  useEffect(() => { venuesRef.current = venues; }, [venues]);
+  useEffect(() => { isLiveActiveRef.current = isLiveActive; }, [isLiveActive]);
+
+  const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const lastProcessedTextRef = useRef<string>('');
+  const debounceTimerRef = useRef<any>(null);
+  const locationIntervalRef = useRef<any>(null);
+  const lastLocationIdRef = useRef<string>('');
+
+  // Inject CSS keyframes for Pulse Sky Blue & Echo Light Green Glows
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const styleId = 'tacit-mochi-ursa-animations';
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          @keyframes pulseSkyBlueGlow {
+            0%, 100% { box-shadow: 0 0 18px rgba(56, 189, 248, 0.55), inset 0 0 12px rgba(56, 189, 248, 0.25); }
+            50% { box-shadow: 0 0 34px rgba(56, 189, 248, 0.95), inset 0 0 18px rgba(56, 189, 248, 0.4); }
+          }
+          @keyframes echoLightGreenGlow {
+            0%, 100% { box-shadow: 0 0 18px rgba(74, 222, 128, 0.55), inset 0 0 12px rgba(74, 222, 128, 0.25); }
+            50% { box-shadow: 0 0 34px rgba(74, 222, 128, 0.95), inset 0 0 18px rgba(74, 222, 128, 0.4); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
+  }, []);
+
+  // Load Persisted Venues, Phrases, SOS, and Mochi Media
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedVenues = await AsyncStorage.getItem('@aac_custom_venues_v4');
+        if (savedVenues) {
+          const parsed = JSON.parse(savedVenues);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const merged = [...DEFAULT_VENUES];
+            parsed.forEach((custom: VenueData) => {
+              const idx = merged.findIndex(d => d.id === custom.id);
+              if (idx >= 0) merged[idx] = custom;
+              else merged.unshift(custom);
+            });
+            setVenues(merged);
+            setActiveVenue(merged[0]);
+          }
+        }
+        const savedMemory = await AsyncStorage.getItem('@aac_custom_phrases');
+        if (savedMemory) setSavedPhrases(JSON.parse(savedMemory));
+
+        const savedSOS = await AsyncStorage.getItem('@aac_sos_profile');
+        if (savedSOS) setSosProfile(JSON.parse(savedSOS));
+
+        const savedMochiMedia = await AsyncStorage.getItem('@aac_mochi_media_v4');
+        if (savedMochiMedia) setMochiMedia({ ...DEFAULT_MOCHI_MEDIA, ...JSON.parse(savedMochiMedia) });
+      } catch (e) {
+        console.warn('Storage load failed:', e);
+      }
+    })();
+
+    if (typeof window !== 'undefined') {
+      setIsOnline(navigator.onLine);
+      const onlineHandler = () => setIsOnline(true);
+      const offlineHandler = () => setIsOnline(false);
+      window.addEventListener('online', onlineHandler);
+      window.addEventListener('offline', offlineHandler);
+      return () => {
+        window.removeEventListener('online', onlineHandler);
+        window.removeEventListener('offline', offlineHandler);
+      };
+    }
+  }, []);
+
+  // Browser File Picker Helper: Lets you upload .mp4 or .gif directly from your computer!
+  const pickLocalMediaFile = (onPicked: (fileUrl: string) => void) => {
+    if (typeof document === 'undefined') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'video/mp4,video/webm,video/quicktime,image/gif,image/webp,image/png,image/jpeg';
+    input.onchange = (e: any) => {
+      const file = e.target?.files?.[0];
+      if (!file) return;
+      // If file is under 3MB, convert to dataURL so AsyncStorage can persist it across reloads; otherwise use fast ObjectURL
+      if (file.size < 3 * 1024 * 1024) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') onPicked(reader.result);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const blobUrl = URL.createObjectURL(file);
+        onPicked(blobUrl);
+      }
+    };
+    input.click();
+  };
+
+  // Open Floating Mochi Hub: Plays "Hello" GIF/Video first, then Location-Specific GIF/Video!
+  const openMochiHub = (initialMode: MochiBotMode = 'pulse') => {
+    setMochiBotMode(initialMode);
+    setMochiGifPhase('hello');
+    setIsMochiHubOpen(true);
+
+    if (helloTimerRef.current) clearTimeout(helloTimerRef.current);
+    helloTimerRef.current = setTimeout(() => {
+      setMochiGifPhase('venue');
+    }, 2200);
+  };
+
+  // Resolve Which Muted Video/GIF Floating Mochi Should Show Right Now:
+  // - Listening / Speaking -> Idle/Listening Panda Video
+  // - Just Clicked -> Hello Greeting GIF/Video
+  // - Venue Selected -> That Venue's Mochi GIF/Video!
+  const getActiveMochiMediaSource = () => {
+    if (isSpeaking || mochiGifPhase === 'speaking') {
+      return mochiMedia.speakingMedia || activeVenue.mochiVenueMedia || mochiMedia.idleFloatingMedia;
+    }
+    if (isLiveActive) {
+      return mochiMedia.idleFloatingMedia;
+    }
+    if (isMochiHubOpen && mochiGifPhase === 'hello') {
+      return mochiMedia.helloGreetingMedia || mochiMedia.idleFloatingMedia;
+    }
+    // Floating in corner or inside hub: changes automatically per selected location!
+    return activeVenue.mochiVenueMedia || mochiMedia.idleFloatingMedia;
+  };
+
+  const interruptAudio = () => {
+    if (activeAudioObjRef.current) {
+      try {
+        activeAudioObjRef.current.pause();
+        activeAudioObjRef.current.currentTime = 0;
+      } catch (e) {}
+      activeAudioObjRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  };
+
+  // ============================================================================
+  // 🎙️ GEMINI "URSA" VOICE ENGINE (Multilingual Native Audio + Browser Fallback)
+  // Speaks in Gemini's Ursa voice for any language!
+  // ============================================================================
+  const speakText = async (text: string, langTarget: SupportedLang) => {
+    if (typeof window === 'undefined' || !text.trim()) return;
+    interruptAudio();
+
+    setIsSpeaking(true);
+    setMochiMood('speaking');
+    setMochiGifPhase('speaking');
+
+    // @ts-ignore
+    const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+
+    // 1. Try Official Gemini "Ursa" Voice Synthesis first
+    if (isOnline && apiKey) {
+      try {
+        const ttsRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text }] }],
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: 'Ursa'
+                    }
+                  }
+                }
+              }
+            })
+          }
+        );
+
+        if (ttsRes.ok) {
+          const ttsData = await ttsRes.json();
+          const inlineAudio = ttsData?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+          if (inlineAudio?.data) {
+            const wavUrl = createWavUrlFromPcmBase64(inlineAudio.data, 24000);
+            const audio = new Audio(wavUrl);
+            activeAudioObjRef.current = audio;
+            audio.onended = () => {
+              setIsSpeaking(false);
+              setMochiMood(isLiveActiveRef.current ? 'listening' : 'happy');
+              setMochiGifPhase(isMochiHubOpen ? 'venue' : 'idle');
+            };
+            audio.onerror = () => {
+              setIsSpeaking(false);
+              setMochiGifPhase(isMochiHubOpen ? 'venue' : 'idle');
+            };
+            await audio.play();
+            return; // Successfully spoke with Gemini Ursa voice!
+          }
+        }
+      } catch (err) {
+        console.warn('Gemini Ursa TTS fallback to device voice:', err);
+      }
+    }
+
+    // 2. Instant Offline / Fallback Sweet Voice
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      const found = LANGUAGE_LIST.find(l => l.code === langTarget);
+      const targetTag = found ? found.ttsLang : langTarget;
+      u.lang = targetTag;
+
+      const voices = window.speechSynthesis.getVoices();
+      const langPrefix = targetTag.split('-')[0].toLowerCase();
+      const matchingVoices = voices.filter(v => v.lang.toLowerCase().includes(langPrefix));
+      const sweetVoice = matchingVoices.find(v => 
+        /natural|aria|jenny|samantha|mei-jia|hsiao|kyoko|google|female|siri|zira/i.test(v.name)
+      ) || matchingVoices[0];
+
+      if (sweetVoice) u.voice = sweetVoice;
+      u.pitch = 1.15;
+      u.rate = 1.02;
+
+      u.onend = () => {
+        setIsSpeaking(false);
+        setMochiMood(isLiveActiveRef.current ? 'listening' : 'happy');
+        setMochiGifPhase(isMochiHubOpen ? 'venue' : 'idle');
+      };
+      u.onerror = () => {
+        setIsSpeaking(false);
+        setMochiMood('happy');
+        setMochiGifPhase(isMochiHubOpen ? 'venue' : 'idle');
+      };
+      window.speechSynthesis.speak(u);
+    } else {
+      setIsSpeaking(false);
+    }
+  };
+
+  // AI Venue Card Generator
+  const fetchDynamicVenueCards = async (placeName: string): Promise<VenueData> => {
+    // @ts-ignore
+    const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+    if (!apiKey) throw new Error('API key missing');
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: 'application/json' }});
+
+    const prompt = `
+      You are Mochi, a cheerful AAC AI companion building a communication board for a non-verbal user.
+      The user just arrived at: "${placeName}".
+      Generate 4 practical communication cards for this exact place.
+      Return ONLY a valid JSON object matching this exact structure:
+      {
+        "id": "loc_${Date.now()}",
+        "nameKey": "${placeName}",
+        "short": "${placeName.substring(0, 9)}",
+        "emoji": "🌟",
+        "iconImage": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=200&q=80",
+        "bgImage": "https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=1200&q=80",
+        "mochiVenueMedia": "${DEFAULT_MOCHI_MEDIA.helloGreetingMedia}",
+        "accent": "#38BDF8",
+        "vibeQuote": "Fun encouraging message from Mochi about this place!",
+        "options": [
+          {
+            "id": "c1",
+            "labels": {"en-US": "🪪 Short English Button", "zh-TW": "🪪 繁體中文短標籤", "ta-IN": "🪪 தமிழ்", "ja-JP": "🪪 日本語ラベル"},
+            "clerkText": {"en-US": "Polite full spoken English sentence", "zh-TW": "禮貌且完整的繁體中文句子", "ta-IN": "முழு வாக்கியம்", "ja-JP": "丁寧な日本語のフルセンテンス"}
+          }
+        ]
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const rawText = result.response.text();
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Invalid JSON from AI');
+    return JSON.parse(jsonMatch[0]) as VenueData;
+  };
+
+  // Multi-Provider Live GPS Radar
+  const scanLiveLocationNow = async (isSilentBackground = false) => {
+    if (!isOnline || isAutoDetectingLocation || isGeneratingVenue) return;
+    setIsAutoDetectingLocation(true);
+    if (!isSilentBackground) {
+      setMochiMood('thinking');
+      setMochiSpeech('Scanning satellites & nearby spots... 🛰️');
+    }
+
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        if (!isSilentBackground) setMochiSpeech('Enable GPS permission in your browser so I can sense where we are! 📍');
+        setIsAutoDetectingLocation(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = location.coords;
+
+      let detectedName = '';
+      let detectedCategory = '';
+
+      try {
+        const overpassQuery = `[out:json][timeout:6];(node(around:80,${latitude},${longitude})["name"];way(around:80,${latitude},${longitude})["name"];);out body 5;`;
+        const osmRes = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
+        const osmData = await osmRes.json();
+        if (osmData?.elements?.length > 0) {
+          const poi = osmData.elements.find((el: any) => el.tags && (el.tags.amenity || el.tags.shop || el.tags.building || el.tags.tourism)) || osmData.elements[0];
+          if (poi?.tags) {
+            detectedName = poi.tags['name:en'] || poi.tags.name || '';
+            detectedCategory = poi.tags.amenity || poi.tags.shop || poi.tags.building || '';
+          }
+        }
+      } catch (e) {}
+
+      if (!detectedName) {
+        try {
+          const nomRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
+          const nomData = await nomRes.json();
+          detectedName = nomData?.name || nomData?.address?.amenity || nomData?.address?.shop || nomData?.address?.building || '';
+          detectedCategory = nomData?.type || nomData?.category || '';
+        } catch (e) {}
+      }
+
+      if (!detectedName) {
+        if (!isSilentBackground) setMochiSpeech(`GPS locked (${latitude.toFixed(3)}, ${longitude.toFixed(3)})! Tap '+' in the dock to name this spot.`);
+        setIsAutoDetectingLocation(false);
+        return;
+      }
+
+      if (isSilentBackground && lastLocationIdRef.current === detectedName) {
+        setIsAutoDetectingLocation(false);
+        return;
+      }
+      lastLocationIdRef.current = detectedName;
+
+      const combinedCheck = `${detectedName} ${detectedCategory}`.toLowerCase();
+      const currentVenues = venuesRef.current;
+
+      let matchedVenue = currentVenues.find(v => v.nameKey.toLowerCase() === detectedName.toLowerCase());
+      if (!matchedVenue) {
+        if (combinedCheck.includes('library') || combinedCheck.includes('圖書館')) matchedVenue = currentVenues.find(v => v.id === 'library');
+        else if (combinedCheck.includes('7-eleven') || combinedCheck.includes('familymart') || combinedCheck.includes('mart') || combinedCheck.includes('超商')) matchedVenue = currentVenues.find(v => v.id === 'convenience');
+        else if (combinedCheck.includes('hospital') || combinedCheck.includes('clinic') || combinedCheck.includes('醫')) matchedVenue = currentVenues.find(v => v.id === 'hospital');
+        else if (combinedCheck.includes('cafe') || combinedCheck.includes('coffee') || combinedCheck.includes('咖啡')) matchedVenue = currentVenues.find(v => v.id === 'cafe');
+        else if (combinedCheck.includes('station') || combinedCheck.includes('metro') || combinedCheck.includes('捷運') || combinedCheck.includes('車站')) matchedVenue = currentVenues.find(v => v.id === 'transit');
+        else if (combinedCheck.includes('restaurant') || combinedCheck.includes('food') || combinedCheck.includes('餐廳')) matchedVenue = currentVenues.find(v => v.id === 'restaurant');
+      }
+
+      if (matchedVenue) {
+        setActiveVenue(matchedVenue);
+        setMochiMood('excited');
+        setMochiSpeech(`📍 Radar locked onto "${detectedName}"! Loaded ${matchedVenue.short} mode.`);
+        setLiveHeardTranslated(`📍 Live GPS Detected: ${detectedName}`);
+      } else {
+        setMochiMood('thinking');
+        setMochiSpeech(`✨ Discovered "${detectedName}"! Crafting custom cards for you...`);
+        const generated = await fetchDynamicVenueCards(detectedName);
+        if (generated && generated.options?.length > 0) {
+          const updatedVenues = [generated, ...currentVenues];
+          setVenues(updatedVenues);
+          setActiveVenue(generated);
+          setMochiMood('excited');
+          setMochiSpeech(generated.vibeQuote || `🎉 Welcome to ${detectedName}! Fresh cards are ready.`);
+          setLiveHeardTranslated(`✨ Mochi Auto-Created Spot: ${detectedName}`);
+          await AsyncStorage.setItem('@aac_custom_venues_v4', JSON.stringify(updatedVenues));
+        }
+      }
+    } catch (err) {
+      if (!isSilentBackground) setMochiSpeech('Could not reach GPS satellites right now—tap "+" to add any place!');
+    } finally {
+      setIsAutoDetectingLocation(false);
+    }
+  };
+
+  useEffect(() => {
+    locationIntervalRef.current = setInterval(() => {
+      scanLiveLocationNow(true);
+    }, 25000);
+    return () => clearInterval(locationIntervalRef.current);
+  }, [isOnline]);
+
+  const buildCurrentOptions = (): ActionOption[] => {
+    let raw = activeVenue.options || [];
+    if (activeVenue.id === 'hospital' && selectedHospitalDept !== 'all') {
+      raw = raw.filter(o => o.category === selectedHospitalDept);
+    }
+    return raw.map(opt => ({
+      id: opt.id,
+      labelUser: opt.labels?.[userLangCode] || opt.labels?.['en-US'] || 'Option',
+      labelClerk: opt.clerkText?.[clerkLangCode] || opt.clerkText?.['zh-TW'] || opt.labels?.['en-US'] || '',
+      payloadType: 'text'
+    }));
+  };
+
+  const [currentOptions, setCurrentOptions] = useState<ActionOption[]>(buildCurrentOptions());
+
+  useEffect(() => {
+    setCurrentOptions(buildCurrentOptions());
+  }, [activeVenue, selectedHospitalDept, userLangCode, clerkLangCode]);
+
+  const playBeep = () => {
+    if (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) {
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+        osc.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {}
+    }
+  };
+
+  const triggerAttention = () => {
+    setIsScreenFlashing(true);
+    playBeep();
+    const msg = UI_STRINGS[clerkLangRef.current]?.introMsg || t.introMsg;
+    setClerkDisplayMessage(msg);
+    setMochiMood('excited');
+    setMochiSpeech('🔔 Ding-dong! Politely getting attention with Ursa voice!');
+    speakText(msg, clerkLangRef.current);
+    setTimeout(() => setIsScreenFlashing(false), 750);
+  };
+
+  const startAudioMeter = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }, 
+        video: false 
+      });
+      streamRef.current = stream;
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateMeter = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        setAudioLevel(0.95 + Math.min(0.45, (sum / dataArray.length) / 130));
+        animFrameRef.current = requestAnimationFrame(updateMeter);
+      };
+      updateMeter();
+    } catch (e) {}
+  };
+
+  const stopAudioMeter = () => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+    if (audioContextRef.current) audioContextRef.current.close();
+    setAudioLevel(1.0);
+  };
+
+  const handleMochiTyping = (text: string) => {
+    setMochiInputText(text);
+    if (mochiBotMode === 'pulse' && text.length > 1) {
+      const suggestions = savedPhrases.filter(p => p.toLowerCase().includes(text.toLowerCase()));
+      setPredictiveSuggestions(suggestions.slice(0, 4));
+    } else {
+      setPredictiveSuggestions([]);
+    }
+  };
+
+  // ============================================================================
+  // 🗣️ UNIFIED MOCHI HUB SUBMIT (Speaks with Gemini Ursa Voice in BOTH Modes!)
+  // ============================================================================
+  const handleMochiHubSubmit = async () => {
+    const text = mochiInputText.trim();
+    if (!text) return;
+
+    const currentClerkLang = clerkLangRef.current;
+    const currentUserLang = userLangRef.current;
+
+    setIsTranslating(true);
+    setMochiMood('thinking');
+
+    if (mochiBotMode === 'pulse') {
+      // PULSE MODE: User types -> Translates to Partner's language -> Speaks aloud in Gemini Ursa Voice!
+      setMochiSpeech('Translating & speaking with Gemini Ursa voice... 💙');
+      let finalSpokenText = text;
+
+      if (!savedPhrases.includes(text)) {
+        const updatedMemory = [text, ...savedPhrases].slice(0, 50);
+        setSavedPhrases(updatedMemory);
+        AsyncStorage.setItem('@aac_custom_phrases', JSON.stringify(updatedMemory));
+      }
+
+      try {
+        if (isOnline && currentClerkLang !== currentUserLang) {
+          // @ts-ignore
+          const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+          if (apiKey) {
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const clerkLangObj = LANGUAGE_LIST.find(l => l.code === currentClerkLang);
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            
+            const prompt = `Translate this phrase naturally and politely into ${clerkLangObj?.name}. Return ONLY the pure translated text, no quotes: "${text}"`;
+            const translationResult = await model.generateContent(prompt);
+            finalSpokenText = translationResult.response.text().trim();
+          }
+        }
+      } catch (err) {}
+
+      setClerkDisplayMessage(finalSpokenText);
+      setLiveHeardTranslated(`💙 Pulse (Ursa): "${finalSpokenText}"`);
+      setMochiSpeech(`Ursa spoke: "${finalSpokenText}" ✨`);
+      setMochiInputText('');
+      setPredictiveSuggestions([]);
+      setIsTranslating(false);
+      await speakText(finalSpokenText, currentClerkLang);
+    } else {
+      // ECHO MODE: Partner types -> Translates to User's language, speaks in Ursa voice, AND generates reply cards!
+      let translatedForUser = text;
+      try {
+        if (isOnline && currentClerkLang !== currentUserLang) {
+          // @ts-ignore
+          const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+          if (apiKey) {
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const userLangObj = LANGUAGE_LIST.find(l => l.code === currentUserLang);
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            const prompt = `Translate this phrase naturally into ${userLangObj?.name}. Return ONLY the pure translated text: "${text}"`;
+            const res = await model.generateContent(prompt);
+            translatedForUser = res.response.text().trim();
+          }
+        }
+      } catch (e) {}
+
+      setMochiInputText('');
+      setIsTranslating(false);
+      setIsMochiHubOpen(false);
+      setLiveHeardTranslated(`💚 Echo Partner: "${translatedForUser}"`);
+      speakText(translatedForUser, currentUserLang);
+      dispatchLiveIntent(text);
+    }
+  };
+
+  const evaluateRealtimeTriggers = (raw: string) => {
+    const text = raw.toLowerCase();
+    const cVenues = venuesRef.current;
+
+    if (text.includes('library') || text.includes('圖書館') || text.includes('借書')) {
+      const lib = cVenues.find(v => v.id === 'library');
+      if (lib && activeVenueRef.current.id !== 'library') {
+        setActiveVenue(lib);
+        setMochiMood('excited');
+        return true;
+      }
+    }
+
+    if (text.includes('how are you') || text.includes('你好嗎') || text.includes('最近怎樣')) {
+      setActiveBubbles(CHIT_CHAT_SYSTEM);
+      setMochiMood('excited');
+      setMochiSpeech('They are checking in on you! Tap a reaction bubble!');
+      setLiveHeardTranslated('💬 Partner asked: "How are you doing today?"');
+      return true;
+    }
+
+    if (text.includes('what happened') || text.includes('怎麼了') || text.includes('哪裡不舒服')) {
+      const badBubble = CHIT_CHAT_SYSTEM.find(b => b.id === 'cc_bad');
+      if (badBubble && badBubble.followUps) {
+        setActiveBubbles([...CORE_REACTIONS, ...badBubble.followUps]);
+      }
+      setMochiMood('thinking');
+      setMochiSpeech('They want to know what’s wrong—tap a symptom card below.');
+      setLiveHeardTranslated('💬 Partner asked: "What happened / How can I help?"');
+      return true;
+    }
+    return false;
+  };
+
+  const dispatchLiveIntent = async (text: string) => {
+    const cleaned = text.trim();
+    if (!cleaned || cleaned === lastProcessedTextRef.current) return;
+    lastProcessedTextRef.current = cleaned;
+
+    const currentClerkLang = clerkLangRef.current;
+    const currentUserLang = userLangRef.current;
+    const currentVenue = activeVenueRef.current;
+
+    const matchedTrigger = evaluateRealtimeTriggers(cleaned);
+
+    if (!isOnline) {
+      if (!matchedTrigger) setLiveHeardTranslated(`(Offline) Heard: "${cleaned}"`);
+      return; 
+    }
+
+    setMochiMood('thinking');
+    setMochiSpeech('Decoding message & crafting your Pulse replies... 🧠⚡');
+
+    try {
+      // @ts-ignore
+      const apiKey = typeof process !== 'undefined' && process.env ? process.env.EXPO_PUBLIC_GEMINI_API_KEY : '';
+      if (!apiKey) return;
+
+      const userLangObj = LANGUAGE_LIST.find(l => l.code === currentUserLang) || LANGUAGE_LIST[0];
+      const clerkLangObj = LANGUAGE_LIST.find(l => l.code === currentClerkLang) || LANGUAGE_LIST[1];
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: 'application/json' }});
+
+      const prompt = `
+        You are Mochi, an upbeat AAC assistant helping a non-verbal user at "${currentVenue.nameKey}".
+        The conversation partner just said: "${cleaned}"
+        
+        1. Translate/summarize what they meant into ${userLangObj.name} ("meaningInUserLang").
+        2. Write a short, fun, encouraging 1-line reaction from Mochi in ${userLangObj.name} ("mochiQuip", max 12 words).
+        3. Generate 3 distinct, practical reply cards for the user.
+           - "labelUser" MUST be in ${userLangObj.name} (with a fitting emoji).
+           - "labelClerk" MUST be the natural spoken response in ${clerkLangObj.name}.
+        
+        Return ONLY valid JSON:
+        {
+          "meaningInUserLang": "Translated question",
+          "mochiQuip": "They asked if you want a bag! Pick one below ✨",
+          "options": [
+            {
+              "id": "r1",
+              "labelUser": "✅ Short reply in ${userLangObj.name}",
+              "labelClerk": "Full polite reply in ${clerkLangObj.name}"
+            }
+          ]
+        }
+      `;
+
+      const result = await model.generateContent(prompt);
+      const rawText = result.response.text();
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return;
+      
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      if (parsed && parsed.options && parsed.options.length > 0) {
+        const dynamicOptions: ActionOption[] = parsed.options.map((opt: any, index: number) => ({
+          id: `dyn_${Date.now()}_${index}`,
+          labelUser: opt.labelUser || 'Reply',
+          labelClerk: opt.labelClerk || '',
+          payloadType: 'text'
+        }));
+        setCurrentOptions(dynamicOptions);
+        if (parsed.meaningInUserLang) setLiveHeardTranslated(parsed.meaningInUserLang);
+        if (parsed.mochiQuip) setMochiSpeech(parsed.mochiQuip);
+        setMochiMood('excited');
+      }
+    } catch (e) {
+      console.warn('Gemini stream inference failed:', e);
+      setMochiMood('listening');
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRec) return;
+
+      if (recognitionRef.current) {
+        try { recognitionRef.current.onend = null; recognitionRef.current.abort(); } catch {}
+      }
+
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      const clerkLangObj = LANGUAGE_LIST.find(l => l.code === clerkLangCode);
+      recognition.lang = clerkLangObj ? clerkLangObj.recognitionCode : 'zh-TW';
+
+      recognition.onresult = (event: any) => {
+        interruptAudio();
+        let currentInterim = '';
+        let highestConfidence = 0;
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i][0];
+          currentInterim += result.transcript;
+          if (event.results[i].isFinal && result.confidence > highestConfidence) {
+            highestConfidence = result.confidence;
+          }
+        }
+
+        const text = currentInterim.trim();
+        if (!text) return;
+        if (highestConfidence > 0 && highestConfidence < 0.45) return; 
+
+        setLiveStreamText(text);
+        setMochiMood('listening');
+
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          dispatchLiveIntent(text);
+        }, 1000);
+      };
+
+      recognition.onerror = () => {};
+      recognition.onend = () => {
+        if (isLiveActiveRef.current) {
+          try { recognition.start(); } catch {}
+        }
+      };
+
+      recognitionRef.current = recognition;
+      if (isLiveActive) {
+        try { recognition.start(); } catch {}
+      }
+    }
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [clerkLangCode, isLiveActive]);
+
+  const toggleLiveSession = () => {
+    if (!isLiveActive) {
+      setIsLiveActive(true);
+      setMochiMood('listening');
+      setMochiSpeech('Pulse Live active! Listening to your conversation partner. 🎧');
+      startAudioMeter();
+      try { recognitionRef.current?.start(); } catch {}
+    } else {
+      setIsLiveActive(false);
+      setMochiMood('happy');
+      setMochiSpeech('Paused listening. Tap Mochi anytime to type & speak!');
+      stopAudioMeter();
+      interruptAudio();
+      try { recognitionRef.current?.stop(); } catch {}
+      setLiveStreamText('');
+    }
+  };
+
+  const handleSelectOption = (opt: ActionOption) => {
+    interruptAudio();
+    setClerkDisplayMessage(opt.labelClerk);
+    setMochiMood('speaking');
+    setMochiSpeech(`Ursa speaking: "${opt.labelUser}" 🔊`);
+    speakText(opt.labelClerk, clerkLangRef.current);
+  };
+
+  const handleSelectBubble = (bubble: ChitChatBubble) => {
+    interruptAudio();
+    const clerkPhrase = bubble.clerkText[clerkLangRef.current] || bubble.clerkText['zh-TW'];
+    setClerkDisplayMessage(clerkPhrase);
+    setMochiMood('speaking');
+    speakText(clerkPhrase, clerkLangRef.current);
+
+    if (bubble.followUps && bubble.followUps.length > 0) {
+      setActiveBubbles([...CORE_REACTIONS, ...bubble.followUps]);
+    }
+  };
+
+  const openEditVenueModal = () => {
+    setEditVenueName(activeVenue.nameKey);
+    setEditVenueShort(activeVenue.short);
+    setEditVenueEmoji(activeVenue.emoji || '✨');
+    setEditVenueAccent(activeVenue.accent || PULSE_SKY_BLUE);
+    setEditVenueBgUrl(typeof activeVenue.bgImage === 'string' ? activeVenue.bgImage : '');
+    setEditVenueMochiMediaUrl(typeof activeVenue.mochiVenueMedia === 'string' ? activeVenue.mochiVenueMedia : '');
+    setIsEditVenueModalOpen(true);
+  };
+
+  const handleSaveEditedVenue = async () => {
+    const updated: VenueData = {
+      ...activeVenue,
+      nameKey: editVenueName.trim() || activeVenue.nameKey,
+      short: editVenueShort.trim() || activeVenue.short,
+      emoji: editVenueEmoji.trim() || '✨',
+      accent: editVenueAccent,
+      bgImage: editVenueBgUrl.trim() ? editVenueBgUrl.trim() : activeVenue.bgImage,
+      mochiVenueMedia: editVenueMochiMediaUrl.trim() ? editVenueMochiMediaUrl.trim() : activeVenue.mochiVenueMedia
+    };
+
+    const newVenuesList = venues.map(v => v.id === updated.id ? updated : v);
+    setVenues(newVenuesList);
+    setActiveVenue(updated);
+    setIsEditVenueModalOpen(false);
+    setMochiMood('excited');
+    setMochiSpeech(`Updated Mochi animation for ${updated.short}! 🎬✨`);
+    await AsyncStorage.setItem('@aac_custom_venues_v4', JSON.stringify(newVenuesList));
+    await AsyncStorage.setItem('@aac_mochi_media_v4', JSON.stringify(mochiMedia));
+  };
+
+  const handleSaveSOSProfile = async () => {
+    await AsyncStorage.setItem('@aac_sos_profile', JSON.stringify(sosProfile));
+    setIsEditingSOS(false);
+  };
+
+  const handleGenerateNewVenue = async () => {
+    const input = newLocationInput.trim();
+    if (!input || isGeneratingVenue) return;
+
+    if (!isOnline) {
+      alert('Cannot analyze locations while offline.');
+      return;
+    }
+
+    setIsGeneratingVenue(true);
+    setMochiMood('thinking');
+    try {
+      const generated = await fetchDynamicVenueCards(input);
+
+      if (generated && generated.options) {
+        const updatedVenues = [generated, ...venues];
+        setVenues(updatedVenues);
+        setActiveVenue(generated);
+        setMochiMood('excited');
+        setMochiSpeech(generated.vibeQuote || `Boom! Created custom cards for ${input}! 🎉`);
+
+        await AsyncStorage.setItem('@aac_custom_venues_v4', JSON.stringify(updatedVenues));
+        setNewLocationInput('');
+        setIsAddLocationModalOpen(false);
+      }
+    } catch (err) {
+      alert('Unable to analyze location. Please check your EXPO_PUBLIC_GEMINI_API_KEY in .env');
+    } finally {
+      setIsGeneratingVenue(false);
+    }
+  };
+
+  const resolveAssetSource = (src: any) => {
+    if (!src) return undefined;
+    if (typeof src === 'string') return { uri: src };
+    return src;
+  };
+
+  const clerkLang = LANGUAGE_LIST.find(l => l.code === clerkLangCode) || LANGUAGE_LIST[0];
+  const userLang = LANGUAGE_LIST.find(l => l.code === userLangCode) || LANGUAGE_LIST[0];
+
+  const activeHubColor = mochiBotMode === 'pulse' ? PULSE_SKY_BLUE : ECHO_LIGHT_GREEN;
+
+  return (
+    <View style={styles.outerScreen}>
+      
+      {/* ====================================================================
+          🖼️ CLASSIC LOCATION BACKGROUND (Stays your selected location image!)
+         ==================================================================== */}
+      <View style={[StyleSheet.absoluteFill, { zIndex: 0, backgroundColor: isScreenFlashing ? '#FFF' : '#05070C', overflow: 'hidden' }]}>
+        <Image 
+          key={`bg-${activeVenue.id}`}
+          source={resolveAssetSource(activeVenue.bgImage)}
+          style={{ width: '100%', height: '100%', resizeMode: 'cover', opacity: isScreenFlashing ? 0 : 0.65 }}
+          blurRadius={3}
+        />
+        {!isScreenFlashing && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(to bottom, rgba(5,7,12,0.7) 0%, rgba(5,7,12,0.6) 50%, rgba(5,7,12,0.95) 100%)',
+            pointerEvents: 'none'
+          }} />
+        )}
+      </View>
+
+      <View style={[styles.mobileContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+
+        {/* ====================================================================
+            💚 ECHO MODE: 180° Flipped Partner Display (Light Green Accent)
+           ==================================================================== */}
+        <View style={[styles.clerkRegion, { borderColor: `${ECHO_LIGHT_GREEN}66`, borderWidth: 1.5 }]}>
+          <div style={glassOverlayStyle} />
+          <View style={styles.clerkRotatedContainer}>
+            <Text style={[styles.clerkMetaTag, { color: ECHO_LIGHT_GREEN }]}>
+              [ {t.echoViewTag} • {activeVenue.emoji || '📍'} {activeVenue.short.toUpperCase()} ]
+            </Text>
+            <Text style={[styles.clerkResponseText, { color: '#FFFFFF' }]} numberOfLines={3} adjustsFontSizeToFit>
+              {clerkDisplayMessage}
+            </Text>
+
+            <TouchableOpacity 
+              style={[styles.clerkKeyboardToggle, { borderColor: ECHO_LIGHT_GREEN, borderWidth: 1 }]} 
+              onPress={() => openMochiHub('echo')}
+            >
+              <Text style={[styles.clerkKeyboardToggleText, { color: ECHO_LIGHT_GREEN }]}>{t.openEchoBotBtn}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ====================================================================
+            💙 PULSE MODE: Status & Upload Studio Bar
+           ==================================================================== */}
+        <View style={[styles.divider, { borderColor: `${PULSE_SKY_BLUE}44`, borderWidth: 1 }]}>
+          <div style={glassOverlayStyle} />
+          <View style={styles.liveIndicatorRow}>
+            <View style={[styles.liveDot, isLiveActive ? styles.liveDotActive : { backgroundColor: PULSE_SKY_BLUE }]} />
+            <Text style={styles.dividerContextLabel}>
+              {isLiveActive ? t.live : t.standby} • {clerkLang.short} ⇄ {userLang.short}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, zIndex: 2 }}>
+            <TouchableOpacity style={[styles.settingsPill, { borderColor: PULSE_SKY_BLUE, borderWidth: 1 }]} onPress={openEditVenueModal}>
+              <Text style={[styles.settingsPillText, { color: PULSE_SKY_BLUE }]}>{t.editVenueBtn}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.settingsPill} onPress={() => setIsSettingsOpen(true)}>
+              <Text style={styles.settingsPillText}>{t.languages}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.contentRow}>
+          <View style={styles.userRegion}>
+
+            {!isOnline && (
+              <View style={styles.offlineNoticeBar}>
+                <Text style={styles.offlineNoticeText}>{t.offlineNotice}</Text>
+              </View>
+            )}
+
+            {/* Top Action Row: Attention Bell + Live Radar */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+              <TouchableOpacity style={styles.attentionBtn} onPress={triggerAttention}>
+                <Text style={styles.attentionBtnText}>{t.attentionBtn}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.gpsScanBtn, { borderColor: PULSE_SKY_BLUE }]} 
+                onPress={() => scanLiveLocationNow(false)}
+                disabled={isAutoDetectingLocation}
+              >
+                {isAutoDetectingLocation ? (
+                  <ActivityIndicator size="small" color={PULSE_SKY_BLUE} />
+                ) : (
+                  <Text style={[styles.gpsScanBtnText, { color: PULSE_SKY_BLUE }]}>{t.scanGpsBtn}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Voice Visualizer Bar */}
+            <View style={[styles.kineticContainer, { borderColor: `${PULSE_SKY_BLUE}55`, borderWidth: 1 }]}>
+              <div style={glassOverlayStyle} />
+              <View style={styles.companionStageRow}>
+                <View style={styles.orbWrapper}>
+                  <BallStudy mode="dark" scale={audioLevel} brightness={isLiveActive ? (isSpeaking ? 1.7 : 1.4) : 0.85} />
+                </View>
+                <View style={styles.mochiBuddyBox}>
+                  <View style={styles.mochiHeaderRow}>
+                    <Text style={[styles.mochiAvatarText, { color: PULSE_SKY_BLUE }]}>💙 {t.pulseViewTag} (Ursa Voice)</Text>
+                    <TouchableOpacity 
+                      style={[styles.liveToggleMini, isLiveActive ? styles.liveButtonOn : { backgroundColor: PULSE_SKY_BLUE }]} 
+                      onPress={toggleLiveSession}
+                    >
+                      <Text style={styles.liveToggleMiniText}>{isLiveActive ? t.endLive : t.startLive}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.mochiSpeechText} numberOfLines={2}>
+                    {liveStreamText ? `🎤 "${liveStreamText}"` : mochiSpeech}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Quick Reaction Bubbles */}
+            <View style={styles.bubblesHeaderRow}>
+              <Text style={styles.bubblesHeaderTitle}>{t.floatingBubblesTitle}</Text>
+              <TouchableOpacity onPress={() => setActiveBubbles(CHIT_CHAT_SYSTEM)}>
+                <Text style={[styles.bubblesResetText, { color: PULSE_SKY_BLUE }]}>{t.reset}</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bubbleScrollRow}>
+              {activeBubbles.map((bubble) => (
+                <TouchableOpacity
+                  key={bubble.id}
+                  style={[styles.floatingBubble, bubble.isCore && { backgroundColor: 'rgba(56, 189, 248, 0.16)', borderWidth: 1, borderColor: PULSE_SKY_BLUE }]}
+                  onPress={() => handleSelectBubble(bubble)}
+                >
+                  <div style={glassOverlayStyle} />
+                  <Text style={[styles.floatingBubbleText, bubble.isCore && { color: PULSE_SKY_BLUE }]}>
+                    {bubble.labels[userLangCode] || bubble.labels['en-US']}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {liveHeardTranslated ? (
+              <View style={[styles.transcriptBox, { borderColor: `${ECHO_LIGHT_GREEN}66`, borderWidth: 1 }]}>
+                <div style={glassOverlayStyle} />
+                <View style={styles.transcriptHeader}>
+                  <Text style={[styles.transcriptLabel, { color: ECHO_LIGHT_GREEN }]}>{t.understoodIntent}</Text>
+                </View>
+                <Text style={styles.transcriptText} numberOfLines={2}>{liveHeardTranslated}</Text>
+              </View>
+            ) : null}
+
+            {/* Active Location Header */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.quickReplyTitle}>{t.liveLocationText}</Text>
+              <TouchableOpacity 
+                style={[styles.locationTagPill, { borderColor: activeVenue.accent, flexDirection: 'row', alignItems: 'center', gap: 4 }]}
+                onPress={openEditVenueModal}
+              >
+                {isAutoDetectingLocation && <ActivityIndicator size="small" color={activeVenue.accent} />}
+                <Text style={[styles.locationTagText, { color: activeVenue.accent }]}>
+                  {activeVenue.emoji || '📍'} {activeVenue.nameKey} ✎
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Smart Contextual Cards */}
+            <ScrollView contentContainerStyle={styles.actionCardGrid} showsVerticalScrollIndicator={false}>
+              {currentOptions.map((opt) => (
+                <TouchableOpacity key={opt.id} style={[styles.actionCard, { borderLeftColor: activeVenue.accent }]} onPress={() => handleSelectOption(opt)}>
+                  <div style={glassOverlayStyle} />
+                  <Text style={[styles.actionCardText, { color: '#FFFFFF' }]}>{opt.labelUser}</Text>
+                  <Text style={[styles.previewSubtext, { color: activeVenue.accent }]}>{t.facingClerkPrefix} "{opt.labelClerk}" 🔊</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Right Floating Venue Dock */}
+          <View style={styles.sidebarDock}>
+            <div style={dockGlassStyle} />
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.dockScroll}>
+              {venues.map((loc) => {
+                const isSelected = activeVenue.id === loc.id;
+                return (
+                  <TouchableOpacity
+                    key={loc.id}
+                    style={[styles.dockImageBox, isSelected && [styles.dockImageBoxActive, { borderColor: loc.accent }]]}
+                    onPress={() => { setActiveVenue(loc); if (loc.id === 'hospital') setSelectedHospitalDept('all'); }}
+                  >
+                    <Image source={resolveAssetSource(loc.iconImage)} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                    <View style={styles.dockEmojiBadge}>
+                      <Text style={{ fontSize: 9 }}>{loc.emoji || '📍'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity style={styles.addLocationButton} onPress={() => setIsAddLocationModalOpen(true)}>
+                <Text style={styles.addLocationText}>＋</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.sosSidebarButton} onPress={() => setIsSOSModalOpen(true)}>
+                <Text style={styles.sosSidebarText}>{t.sosBtn}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+
+        </View>
+
+        {/* ====================================================================
+            🐼 ALWAYS-FLOATING MOCHI VIDEO / GIF BOT (Changes per Location!)
+            Plays your .mp4 or .gif completely MUTED so it never clashes with speech
+           ==================================================================== */}
+        <View style={styles.floatingMochiContainer}>
+          <TouchableOpacity 
+            style={styles.floatingMochiSpeechPill}
+            onPress={() => openMochiHub('pulse')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.floatingMochiSpeechText} numberOfLines={1}>
+              🐼 Tap Mochi ({activeVenue.short})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.floatingMochiAvatarBtn,
+              { borderColor: mochiBotMode === 'pulse' ? PULSE_SKY_BLUE : ECHO_LIGHT_GREEN }
+            ]}
+            onPress={() => openMochiHub('pulse')}
+            activeOpacity={0.8}
+          >
+            <MochiMediaPlayer source={getActiveMochiMediaSource()} />
+            <View style={[styles.floatingMochiBadge, { backgroundColor: mochiBotMode === 'pulse' ? PULSE_SKY_BLUE : ECHO_LIGHT_GREEN }]}>
+              <Text style={styles.floatingMochiBadgeText}>{activeVenue.emoji || '💬'}</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ====================================================================
+            🐼 FLOATING MOCHI ASSISTANT HUB MODAL (Pulse Sky Blue / Echo Light Green)
+           ==================================================================== */}
+        <Modal visible={isMochiHubOpen} transparent animationType="fade">
+          <View style={styles.mochiHubBackdrop}>
+            <div 
+              style={{
+                width: '92%',
+                maxWidth: '460px',
+                borderRadius: '28px',
+                padding: '20px',
+                backgroundColor: 'rgba(10, 14, 24, 0.95)',
+                backdropFilter: 'blur(35px) saturate(200%)',
+                border: `2.5px solid ${activeHubColor}`,
+                animation: mochiBotMode === 'pulse' ? 'pulseSkyBlueGlow 2.4s infinite ease-in-out' : 'echoLightGreenGlow 2.4s infinite ease-in-out',
+                transform: mochiBotMode === 'echo' ? 'rotate(180deg)' : 'none',
+                transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.25s ease'
+              }}
+            >
+              {/* Top Mode Switcher: Pulse Mode (Sky Blue) vs Echo Mode (Light Green) */}
+              <View style={styles.mochiModeSwitchRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.mochiModeSwitchBtn,
+                    mochiBotMode === 'pulse' && { backgroundColor: 'rgba(56, 189, 248, 0.22)', borderColor: PULSE_SKY_BLUE }
+                  ]}
+                  onPress={() => setMochiBotMode('pulse')}
+                >
+                  <Text style={[styles.mochiModeSwitchText, { color: mochiBotMode === 'pulse' ? PULSE_SKY_BLUE : '#AAA' }]}>
+                    {t.pulseModeBtn}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.mochiModeSwitchBtn,
+                    mochiBotMode === 'echo' && { backgroundColor: 'rgba(74, 222, 128, 0.22)', borderColor: ECHO_LIGHT_GREEN }
+                  ]}
+                  onPress={() => setMochiBotMode('echo')}
+                >
+                  <Text style={[styles.mochiModeSwitchText, { color: mochiBotMode === 'echo' ? ECHO_LIGHT_GREEN : '#AAA' }]}>
+                    {t.echoModeBtn}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Animated Mochi Character Stage (Plays Muted Video or GIF!) */}
+              <View style={styles.mochiStageCenter}>
+                <View style={[styles.mochiStageGifFrame, { borderColor: activeHubColor }]}>
+                  <MochiMediaPlayer source={getActiveMochiMediaSource()} />
+                </View>
+                <Text style={[styles.mochiStageTitle, { color: activeHubColor }]}>
+                  {mochiGifPhase === 'hello' 
+                    ? t.mochiGreetingTitle 
+                    : `${activeVenue.emoji || '✨'} Mochi @ ${activeVenue.short} (Ursa Voice)`}
+                </Text>
+                <Text style={styles.mochiStageSub}>
+                  {mochiBotMode === 'pulse'
+                    ? 'Pulse Mode: Type below & Gemini Ursa will speak for you!'
+                    : 'Echo Mode (180°): Type here to speak & send back to Pulse Mode!'}
+                </Text>
+              </View>
+
+              {/* Predictive Memory Pills */}
+              {mochiBotMode === 'pulse' && predictiveSuggestions.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                  {predictiveSuggestions.map((sug, i) => (
+                    <TouchableOpacity key={i} style={[styles.predictivePill, { borderColor: PULSE_SKY_BLUE, borderWidth: 1 }]} onPress={() => setMochiInputText(sug)}>
+                      <Text style={[styles.predictivePillText, { color: PULSE_SKY_BLUE }]}>⚡ {sug}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Unified Typing Input Box */}
+              <TextInput
+                style={[styles.mochiHubTextInput, { borderColor: `${activeHubColor}88` }]}
+                placeholder={
+                  isTranslating 
+                    ? t.translatingText 
+                    : (mochiBotMode === 'pulse' ? t.pulseTypePlaceholder : t.echoTypePlaceholder)
+                }
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                value={mochiInputText}
+                onChangeText={handleMochiTyping}
+                onSubmitEditing={handleMochiHubSubmit}
+                autoFocus
+                multiline
+              />
+
+              {/* Speak with Gemini Ursa Action Button */}
+              <TouchableOpacity
+                style={[styles.mochiHubSubmitBtn, { backgroundColor: activeHubColor }]}
+                onPress={handleMochiHubSubmit}
+                disabled={isTranslating}
+              >
+                {isTranslating ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={styles.mochiHubSubmitBtnText}>
+                    {mochiBotMode === 'pulse' ? t.mochiSpeakBtn : t.mochiEchoSendBtn}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsMochiHubOpen(false)}>
+                <Text style={styles.cancelBtnText}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </div>
+          </View>
+        </Modal>
+
+        {/* MODAL 2: Editable SOS Fullscreen Emergency Modal */}
+        <Modal visible={isSOSModalOpen} transparent animationType="slide">
+          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(220, 38, 38, 0.96)' }]}>
+            <View style={styles.sosModalContent}>
+              <Text style={styles.sosModalTitle}>🚨 {t.sosTitle} 🚨</Text>
+              
+              {!isEditingSOS ? (
+                <>
+                  <View style={styles.sosInfoBox}>
+                    <Text style={styles.sosInfoText}>Name: <Text style={{fontWeight:'900'}}>{sosProfile.name}</Text></Text>
+                    <Text style={styles.sosInfoText}>Blood Type: <Text style={{fontWeight:'900'}}>{sosProfile.blood}</Text></Text>
+                    <Text style={styles.sosInfoText}>Allergies: <Text style={{fontWeight:'900'}}>{sosProfile.allergies}</Text></Text>
+                    <Text style={styles.sosInfoText}>Emergency Contact: <Text style={{fontWeight:'900'}}>{sosProfile.contact}</Text></Text>
+                    <Text style={[styles.sosInfoText, { marginTop: 8, fontSize: 15, opacity: 0.9 }]}>"{sosProfile.note}"</Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.sosSpeakActionBtn} 
+                    onPress={() => speakText(sosProfile.note, clerkLangRef.current)}
+                  >
+                    <Text style={styles.sosSpeakActionText}>{t.sosSpeak}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.saveBtn, { backgroundColor: 'rgba(0,0,0,0.35)', width: '100%' }]} onPress={() => setIsEditingSOS(true)}>
+                    <Text style={[styles.saveBtnText, { color: '#FFF' }]}>✎ Edit Medical ID Details</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <View style={{ width: '100%' }}>
+                  <TextInput style={styles.modalTextInput} value={sosProfile.name} onChangeText={(v) => setSosProfile({...sosProfile, name: v})} placeholder="Full Name" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.blood} onChangeText={(v) => setSosProfile({...sosProfile, blood: v})} placeholder="Blood Type (e.g. O+)" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.allergies} onChangeText={(v) => setSosProfile({...sosProfile, allergies: v})} placeholder="Allergies" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.contact} onChangeText={(v) => setSosProfile({...sosProfile, contact: v})} placeholder="Emergency Phone" placeholderTextColor="#DDD" />
+                  <TextInput style={styles.modalTextInput} value={sosProfile.note} onChangeText={(v) => setSosProfile({...sosProfile, note: v})} placeholder="Emergency Spoken Message" placeholderTextColor="#DDD" />
+                  <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#000' }]} onPress={handleSaveSOSProfile}>
+                    <Text style={[styles.saveBtnText, { color: '#FFF' }]}>💾 Save Emergency Profile</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setIsEditingSOS(false); setIsSOSModalOpen(false); }}>
+                <Text style={[styles.cancelBtnText, { color: '#FFF' }]}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ====================================================================
+            🎬 MODAL 3: UPLOAD GIF / VIDEO (.MP4) STUDIO FOR FLOATING MOCHI
+           ==================================================================== */}
+        <Modal visible={isEditVenueModalOpen} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>🎬 Mochi Video/GIF Uploader ("{activeVenue.short}")</Text>
+              <ScrollView style={{ maxHeight: 440 }}>
+                
+                {/* 1. Location-Specific Floating Mochi GIF/Video */}
+                <Text style={styles.sectionHeader}>🐼 1. Mochi Video/GIF for "{activeVenue.short}" (Muted)</Text>
+                <View style={styles.uploadRow}>
+                  <TextInput
+                    style={[styles.modalTextInput, { flex: 1, marginBottom: 0 }]}
+                    value={editVenueMochiMediaUrl}
+                    onChangeText={setEditVenueMochiMediaUrl}
+                    placeholder="Paste .mp4 / .gif link or click Upload ->"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                  />
+                  <TouchableOpacity 
+                    style={styles.uploadFileBtn} 
+                    onPress={() => pickLocalMediaFile((url) => setEditVenueMochiMediaUrl(url))}
+                  >
+                    <Text style={styles.uploadFileBtnText}>📁 Upload</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 2. Always-Floating Listening Video/GIF (e.g., Your Dancing Panda MP4!) */}
+                <Text style={styles.sectionHeader}>🎧 2. Mochi Listening / Floating Video (.mp4 / .gif)</Text>
+                <View style={styles.uploadRow}>
+                  <TextInput
+                    style={[styles.modalTextInput, { flex: 1, marginBottom: 0 }]}
+                    value={typeof mochiMedia.idleFloatingMedia === 'string' ? mochiMedia.idleFloatingMedia : ''}
+                    onChangeText={(v) => setMochiMedia({ ...mochiMedia, idleFloatingMedia: v })}
+                    placeholder="Upload your dancing panda .mp4 here ->"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                  />
+                  <TouchableOpacity 
+                    style={styles.uploadFileBtn} 
+                    onPress={() => pickLocalMediaFile((url) => setMochiMedia({ ...mochiMedia, idleFloatingMedia: url }))}
+                  >
+                    <Text style={styles.uploadFileBtnText}>📁 Upload</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* 3. Hello Greeting GIF/Video (When Mochi is clicked) */}
+                <Text style={styles.sectionHeader}>👋 3. Mochi "Hello" Greeting Video/GIF (On Click)</Text>
+                <View style={styles.uploadRow}>
+                  <TextInput
+                    style={[styles.modalTextInput, { flex: 1, marginBottom: 0 }]}
+                    value={typeof mochiMedia.helloGreetingMedia === 'string' ? mochiMedia.helloGreetingMedia : ''}
+                    onChangeText={(v) => setMochiMedia({ ...mochiMedia, helloGreetingMedia: v })}
+                    placeholder="Upload Hello greeting .mp4 or .gif ->"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                  />
+                  <TouchableOpacity 
+                    style={styles.uploadFileBtn} 
+                    onPress={() => pickLocalMediaFile((url) => setMochiMedia({ ...mochiMedia, helloGreetingMedia: url }))}
+                  >
+                    <Text style={styles.uploadFileBtnText}>📁 Upload</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.sectionHeader}>Venue Title & Emoji Badge</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[styles.modalTextInput, { width: 60, textAlign: 'center' }]}
+                    value={editVenueEmoji}
+                    onChangeText={setEditVenueEmoji}
+                    placeholder="🌟"
+                  />
+                  <TextInput
+                    style={[styles.modalTextInput, { flex: 1 }]}
+                    value={editVenueName}
+                    onChangeText={setEditVenueName}
+                    placeholder="Full Location Name"
+                  />
+                </View>
+
+                <Text style={styles.sectionHeader}>Card Accent Color</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                  {COLOR_SWATCHES.map(color => (
+                    <TouchableOpacity
+                      key={color}
+                      onPress={() => setEditVenueAccent(color)}
+                      style={{
+                        width: 32, height: 32, borderRadius: 16, backgroundColor: color,
+                        borderWidth: editVenueAccent === color ? 3 : 0, borderColor: '#FFF'
+                      }}
+                    />
+                  ))}
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity style={[styles.saveBtn, { backgroundColor: editVenueAccent }]} onPress={handleSaveEditedVenue}>
+                <Text style={styles.saveBtnText}>💾 Save Mochi Videos & Spot</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditVenueModalOpen(false)}>
+                <Text style={styles.cancelBtnText}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MODAL 4: Language Settings */}
+        <Modal visible={isSettingsOpen} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>⚙ Languages (Gemini Ursa Voice)</Text>
+              <ScrollView style={{ maxHeight: 380 }}>
+                <Text style={styles.sectionHeader}>💚 Echo Mode (Partner Language):</Text>
+                {LANGUAGE_LIST.map((lang) => (
+                  <TouchableOpacity
+                    key={`clerk-${lang.code}`}
+                    style={[styles.languageOption, clerkLangCode === lang.code && styles.languageOptionSelected]}
+                    onPress={() => setClerkLangCode(lang.code)}
+                  >
+                    <Text style={styles.languageOptionText}>{lang.name}</Text>
+                    {clerkLangCode === lang.code && <Text style={{ color: ECHO_LIGHT_GREEN, fontWeight: 'bold' }}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+                <Text style={[styles.sectionHeader, { marginTop: 18 }]}>💙 Pulse Mode (Your Language):</Text>
+                {LANGUAGE_LIST.map((lang) => (
+                  <TouchableOpacity
+                    key={`user-${lang.code}`}
+                    style={[styles.languageOption, userLangCode === lang.code && styles.languageOptionSelected]}
+                    onPress={() => setUserLangCode(lang.code)}
+                  >
+                    <Text style={styles.languageOptionText}>{lang.name}</Text>
+                    {userLangCode === lang.code && <Text style={{ color: PULSE_SKY_BLUE, fontWeight: 'bold' }}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.closeModalButton} onPress={() => setIsSettingsOpen(false)}>
+                <Text style={styles.closeModalText}>Save & Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* MODAL 5: Add New Place with AI */}
+        <Modal visible={isAddLocationModalOpen} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <div style={glassOverlayStyle} />
+              <Text style={styles.modalTitle}>{t.addLocationModalTitle}</Text>
+              <Text style={styles.modalSub}>{t.addLocationModalSub}</Text>
+              
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder={t.addLocationPlaceholder}
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={newLocationInput}
+                onChangeText={setNewLocationInput}
+                onSubmitEditing={handleGenerateNewVenue}
+                autoFocus
+              />
+
+              <TouchableOpacity style={[styles.saveBtn, isGeneratingVenue && { opacity: 0.5 }]} disabled={isGeneratingVenue} onPress={handleGenerateNewVenue}>
+                {isGeneratingVenue ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator color="#000" size="small" />
+                    <Text style={styles.saveBtnText}>{t.addLocationAnalyzingBtn}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.saveBtnText}>{t.addLocationAnalyzeBtn}</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsAddLocationModalOpen(false)}>
+                <Text style={styles.cancelBtnText}>{t.cancel}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+      </View>
+    </View>
+  );
+};
+
+const glassOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  backdropFilter: 'blur(28px) saturate(200%)',
+  WebkitBackdropFilter: 'blur(28px) saturate(200%)',
+  backgroundColor: 'rgba(20, 24, 38, 0.42)',
+  border: '1px solid rgba(255, 255, 255, 0.15)',
+  pointerEvents: 'none',
+  borderRadius: 'inherit'
+};
+
+const dockGlassStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  backdropFilter: 'blur(35px) saturate(220%)',
+  WebkitBackdropFilter: 'blur(35px) saturate(220%)',
+  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  border: '1px solid rgba(255, 255, 255, 0.22)',
+  pointerEvents: 'none',
+  borderRadius: '24px'
+};
+
+const styles = StyleSheet.create({
+  outerScreen: { flex: 1, backgroundColor: '#05070C', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  mobileContainer: { width: '100%', maxWidth: 500, flex: 1, zIndex: 1, display: 'flex', flexDirection: 'column', position: 'relative' },
+  clerkRegion: { flex: 0.22, borderRadius: 22, marginHorizontal: 12, marginTop: 6, position: 'relative', justifyContent: 'center', alignItems: 'center', padding: 12, overflow: 'hidden' },
+  clerkRotatedContainer: { transform: [{ rotate: '180deg' }], width: '100%', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  clerkMetaTag: { fontSize: 9, letterSpacing: 1.5, marginBottom: 4, fontWeight: '900' },
+  clerkResponseText: { fontSize: 26, fontWeight: '900', textAlign: 'center', lineHeight: 32 },
+  clerkKeyboardToggle: { marginTop: 8, backgroundColor: 'rgba(74, 222, 128, 0.14)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12 },
+  clerkKeyboardToggleText: { fontSize: 11, fontWeight: '800' },
+  divider: { height: 38, marginHorizontal: 12, marginVertical: 5, borderRadius: 14, position: 'relative', overflow: 'hidden', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 },
+  liveIndicatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, zIndex: 2 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#38BDF8' },
+  liveDotActive: { backgroundColor: '#4ADE80' },
+  dividerContextLabel: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  locationTagPill: { backgroundColor: 'rgba(0, 0, 0, 0.45)', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' },
+  locationTagText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
+  settingsPill: { backgroundColor: 'rgba(255, 255, 255, 0.14)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  settingsPillText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
+  contentRow: { flex: 1, flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginBottom: 6 },
+  userRegion: { flex: 1, display: 'flex', flexDirection: 'column' },
+  offlineNoticeBar: { backgroundColor: '#FF8A1F', borderRadius: 8, paddingVertical: 4, alignItems: 'center', marginBottom: 6 },
+  offlineNoticeText: { color: '#000', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  attentionBtn: { flex: 1, backgroundColor: '#FFD60A', paddingVertical: 7, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  attentionBtnText: { color: '#000', fontSize: 12, fontWeight: '900' },
+  gpsScanBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, backgroundColor: 'rgba(56, 189, 248, 0.12)', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  gpsScanBtnText: { fontSize: 11, fontWeight: '800' },
+  kineticContainer: { height: 78, width: '100%', borderRadius: 18, overflow: 'hidden', position: 'relative', marginBottom: 6, justifyContent: 'center' },
+  companionStageRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, zIndex: 2, height: '100%' },
+  orbWrapper: { width: 62, height: 62, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 31 },
+  mochiBuddyBox: { flex: 1, paddingLeft: 10, justifyContent: 'center' },
+  mochiHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  mochiAvatarText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.3 },
+  liveToggleMini: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  liveToggleMiniText: { color: '#000', fontSize: 10, fontWeight: '900' },
+  mochiSpeechText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', lineHeight: 15 },
+  liveButtonOn: { backgroundColor: '#FF453A' },
+  bubblesHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  bubblesHeaderTitle: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  bubblesResetText: { fontSize: 10, fontWeight: '800' },
+  bubbleScrollRow: { gap: 6, paddingBottom: 6 },
+  floatingBubble: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16, position: 'relative', overflow: 'hidden', borderWidth: 1, borderColor: 'transparent' },
+  floatingBubbleText: { color: '#FFF', fontSize: 11, fontWeight: '700', zIndex: 2 },
+  predictivePill: { backgroundColor: 'rgba(56, 189, 248, 0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, marginRight: 6 },
+  predictivePillText: { fontSize: 11, fontWeight: '700' },
+  transcriptBox: { borderRadius: 12, padding: 7, marginBottom: 6, position: 'relative', overflow: 'hidden' },
+  transcriptHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2, zIndex: 2 },
+  transcriptLabel: { fontSize: 10, fontWeight: '800', zIndex: 2 },
+  transcriptText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800', zIndex: 2 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, marginTop: 2 },
+  quickReplyTitle: { color: 'rgba(255, 255, 255, 0.65)', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '800' },
+  actionCardGrid: { gap: 7, paddingBottom: 95 },
+  actionCard: { borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, position: 'relative', overflow: 'hidden', borderLeftWidth: 4 },
+  actionCardText: { fontSize: 14, fontWeight: '800', zIndex: 2 },
+  previewSubtext: { fontSize: 11, marginTop: 3, fontWeight: '700', zIndex: 2 },
+  sidebarDock: { width: 54, borderRadius: 22, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  dockScroll: { paddingVertical: 8, alignItems: 'center', gap: 8, zIndex: 2 },
+  dockImageBox: { width: 42, height: 42, borderRadius: 14, borderWidth: 1.5, borderColor: 'rgba(255, 255, 255, 0.2)', overflow: 'hidden', backgroundColor: 'rgba(0, 0, 0, 0.3)', position: 'relative' },
+  dockImageBoxActive: { borderWidth: 2.5, transform: [{ scale: 1.06 }] },
+  dockEmojiBadge: { position: 'absolute', bottom: 1, right: 1, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 6, paddingHorizontal: 2 },
+  addLocationButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(255, 255, 255, 0.08)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: 'rgba(255, 255, 255, 0.35)', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  addLocationText: { color: '#FFF', fontSize: 20, fontWeight: '600' },
+  sosSidebarButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: '#FF3B30', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  sosSidebarText: { color: '#FFF', fontSize: 11, fontWeight: '900' },
+
+  // FLOATING MOCHI ORB STYLES
+  floatingMochiContainer: {
+    position: 'absolute',
+    bottom: 16,
+    right: 72,
+    zIndex: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  floatingMochiSpeechPill: {
+    backgroundColor: 'rgba(12, 18, 30, 0.92)',
+    borderWidth: 1.5,
+    borderColor: PULSE_SKY_BLUE,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    maxWidth: 195
+  },
+  floatingMochiSpeechText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800'
+  },
+  floatingMochiAvatarBtn: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 3,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    position: 'relative',
+    shadowColor: PULSE_SKY_BLUE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.75,
+    shadowRadius: 14,
+    elevation: 10
+  },
+  floatingMochiBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  floatingMochiBadgeText: { fontSize: 11 },
+
+  // FLOATING MOCHI HUB MODAL STYLES
+  mochiHubBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16
+  },
+  mochiModeSwitchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14
+  },
+  mochiModeSwitchBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  mochiModeSwitchText: {
+    fontSize: 12,
+    fontWeight: '900'
+  },
+  mochiStageCenter: {
+    alignItems: 'center',
+    marginBottom: 14
+  },
+  mochiStageGifFrame: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    borderWidth: 3,
+    overflow: 'hidden',
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF'
+  },
+  mochiStageTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 3
+  },
+  mochiStageSub: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    textAlign: 'center'
+  },
+  mochiHubTextInput: {
+    width: '100%',
+    minHeight: 70,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1.5,
+    color: '#FFFFFF',
+    fontSize: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    outlineStyle: 'none'
+  },
+  mochiHubSubmitBtn: {
+    width: '100%',
+    paddingVertical: 13,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6
+  },
+  mochiHubSubmitBtnText: {
+    color: '#030712',
+    fontSize: 15,
+    fontWeight: '900'
+  },
+
+  uploadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+    zIndex: 2
+  },
+  uploadFileBtn: {
+    backgroundColor: PULSE_SKY_BLUE,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  uploadFileBtnText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: '900'
+  },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end', alignItems: 'center' },
+  modalContent: { width: '100%', maxWidth: 480, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '88%', position: 'relative', overflow: 'hidden' },
+  sosModalContent: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center', justifyContent: 'center' },
+  sosModalTitle: { color: '#FFF', fontSize: 26, fontWeight: '900', marginBottom: 20 },
+  sosInfoBox: { width: '100%', backgroundColor: 'rgba(0,0,0,0.45)', padding: 18, borderRadius: 16, marginBottom: 20 },
+  sosInfoText: { color: '#FFF', fontSize: 17, marginBottom: 6 },
+  sosSpeakActionBtn: { backgroundColor: '#FFF', paddingVertical: 15, paddingHorizontal: 24, borderRadius: 16, marginBottom: 14, width: '100%', alignItems: 'center' },
+  sosSpeakActionText: { color: '#FF3B30', fontSize: 17, fontWeight: '900' },
+  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', marginBottom: 8, zIndex: 2 },
+  modalSub: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, marginBottom: 14, lineHeight: 18, zIndex: 2 },
+  sectionHeader: { color: PULSE_SKY_BLUE, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, zIndex: 2 },
+  languageOption: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.1)', zIndex: 2 },
+  languageOptionSelected: { backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: 8 },
+  languageOptionText: { color: '#FFF', fontSize: 14, fontWeight: '600', zIndex: 2 },
+  closeModalButton: { marginTop: 14, backgroundColor: PULSE_SKY_BLUE, paddingVertical: 12, borderRadius: 12, alignItems: 'center', zIndex: 2 },
+  closeModalText: { color: '#000', fontSize: 15, fontWeight: '900' },
+  modalTextInput: { width: '100%', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)', color: '#FFF', fontSize: 14, marginBottom: 12, zIndex: 2, outlineStyle: 'none' },
+  saveBtn: { backgroundColor: PULSE_SKY_BLUE, paddingVertical: 12, borderRadius: 12, alignItems: 'center', marginBottom: 8, zIndex: 2 },
+  saveBtnText: { color: '#000', fontWeight: '900', fontSize: 14 },
+  cancelBtn: { paddingVertical: 10, alignItems: 'center', zIndex: 2, width: '100%' },
+  cancelBtnText: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 14, fontWeight: '600' }
+});
