@@ -262,3 +262,5 @@ yarn-error.*
 /ios
 /android
 >>>>>>> d18caad (Initial commit)
+.vercel
+.env*
