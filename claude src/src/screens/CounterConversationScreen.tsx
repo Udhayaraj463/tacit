@@ -18,7 +18,35 @@ import * as Location from 'expo-location';
 import { Video, ResizeMode } from 'expo-av';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+
+// 🛡️ Platform-Guarded Native Loader (Works on Android APK & skips safely on Web/iOS)
+let NativeSpeechModule: any = null;
+let nativeSpeechPkg: any = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    nativeSpeechPkg = require('expo-speech-recognition');
+    NativeSpeechModule = nativeSpeechPkg.ExpoSpeechRecognitionModule || nativeSpeechPkg.default;
+  } catch (err) {
+    console.warn('Native speech recognition module skipped on this platform:', err);
+  }
+}
+
+// Helper to Attach Native Event Listeners Safely across Expo SDK 51+
+const attachNativeSpeechEvent = (eventName: string, callback: (event: any) => void) => {
+  if (!NativeSpeechModule) return null;
+  try {
+    if (typeof NativeSpeechModule.addListener === 'function') {
+      return NativeSpeechModule.addListener(eventName, callback);
+    }
+    if (typeof nativeSpeechPkg?.addSpeechRecognitionListener === 'function') {
+      return nativeSpeechPkg.addSpeechRecognitionListener(eventName, callback);
+    }
+  } catch (e) {
+    console.warn(`Failed to attach ${eventName} listener:`, e);
+  }
+  return null;
+};
 
 const THEME = {
   bg: '#000000',           
@@ -63,7 +91,7 @@ const MochiMediaPlayer: React.FC<{ source: any; style?: any }> = ({ source, styl
       uri = source.uri;
     }
     
-    if (uri.includes('.mp4')) {
+    if (uri && uri.includes('.mp4')) {
       return (
         <video 
           key={uri}
@@ -73,7 +101,7 @@ const MochiMediaPlayer: React.FC<{ source: any; style?: any }> = ({ source, styl
         />
       );
     }
-    return <Image key={uri} source={{ uri }} style={[{ width: '100%', height: '100%', resizeMode: 'cover' }, style]} />;
+    return <Image key={uri || 'img'} source={{ uri: uri || 'https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif' }} style={[{ width: '100%', height: '100%', resizeMode: 'cover' }, style]} />;
   }
 
   return (
@@ -88,6 +116,10 @@ const MochiMediaPlayer: React.FC<{ source: any; style?: any }> = ({ source, styl
   );
 };
 
+const getGeminiApiKey = () => {
+  return process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+};
+
 const realTranslate = async (text: string, fromLang: string, toLang: string) => {
   try {
     const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${fromLang}|${toLang}`);
@@ -98,7 +130,7 @@ const realTranslate = async (text: string, fromLang: string, toLang: string) => 
 
 const fetchGeminiDynamicReplies = async (heardText: string, venueName: string) => {
   try {
-    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    const apiKey = getGeminiApiKey();
     if (!apiKey) return null;
     
     const prompt = `User is deaf/non-verbal at a counter: "${venueName}".
@@ -128,8 +160,8 @@ Return strictly JSON formatted as:
 
 const fetchGeminiResponse = async (userText: string) => {
   try {
-    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    if (!apiKey) return "API Key missing. Please check your .env file.";
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) return "API Key missing. Please set EXPO_PUBLIC_GEMINI_API_KEY in your .env file.";
     
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
@@ -166,20 +198,15 @@ const DEFAULT_STORES_DATA = [
 ];
 
 const DEFAULT_CARDS_DATA = [
-  // High Priority: Specific to situation
   { id: "icelevel", stores: ["drink"], priority: 1, keywords: ["冰塊", "正常冰", "少冰", "微冰", "去冰", "熱的", "ice", "hot"], options: [{ labels: { "zh-TW": "少冰", "en-US": "Less Ice" }, subLabels: { "zh-TW": "減冰", "en-US": "Reduce ice" }, tts: "少冰" }, { labels: { "zh-TW": "去冰", "en-US": "No Ice" }, subLabels: { "zh-TW": "不要冰", "en-US": "Zero ice" }, tts: "去冰" }, { labels: { "zh-TW": "熱的", "en-US": "Hot" }, subLabels: { "zh-TW": "溫熱飲", "en-US": "Warm" }, tts: "熱的" }] },
   { id: "sugar", stores: ["drink"], priority: 1, keywords: ["糖", "甜", "半糖", "微糖", "無糖", "sugar", "sweet"], options: [{ labels: { "zh-TW": "無糖", "en-US": "No Sugar" }, subLabels: { "zh-TW": "0% 甜度", "en-US": "0% sweetness" }, tts: "無糖" }, { labels: { "zh-TW": "微糖", "en-US": "Light Sugar" }, subLabels: { "zh-TW": "30% 甜度", "en-US": "30% sweetness" }, tts: "微糖" }, { labels: { "zh-TW": "半糖", "en-US": "Half Sugar" }, subLabels: { "zh-TW": "50% 甜度", "en-US": "50% sweetness" }, tts: "半糖" }] },
   { id: "heat", stores: ["cvs"], priority: 1, keywords: ["加熱", "微波", "熱一下", "要熱嗎", "heat", "microwave"], options: [{ labels: { "zh-TW": "要微波", "en-US": "Heat up" }, subLabels: { "zh-TW": "請幫我微波", "en-US": "Microwave please" }, tts: "要微波，謝謝" }, { labels: { "zh-TW": "不用加熱", "en-US": "No need" }, subLabels: { "zh-TW": "維持現樣", "en-US": "Keep cool" }, tts: "不用加熱，謝謝" }] },
   { id: "rice", stores: ["buffet"], priority: 1, keywords: ["白飯", "飯要", "半碗", "飯量", "rice"], options: [{ labels: { "zh-TW": "正常飯", "en-US": "Normal Rice" }, subLabels: { "zh-TW": "標準量", "en-US": "Standard portion" }, tts: "飯正常" }, { labels: { "zh-TW": "少飯", "en-US": "Less Rice" }, subLabels: { "zh-TW": "半碗飯", "en-US": "Half portion" }, tts: "飯少一點" }, { labels: { "zh-TW": "不要飯", "en-US": "No Rice" }, subLabels: { "zh-TW": "只要菜", "en-US": "Only dishes" }, tts: "不要飯" }] },
   { id: "campus_inquire", stores: ["university"], priority: 1, keywords: ["學生證", "借書", "找哪位", "教室", "library", "id", "card"], options: [{ labels: { "zh-TW": "我找圖書館櫃檯", "en-US": "Library Counter" }, subLabels: { "zh-TW": "借還書詢問", "en-US": "Borrow/return books" }, tts: "您好，我需要借還書或查資料協助。" }, { labels: { "zh-TW": "出示學生證", "en-US": "Show Student ID" }, subLabels: { "zh-TW": "驗證身分", "en-US": "Verify student id" }, tts: "這是我的學生證。" }] },
-  
-  // Medium Priority: Common transactional steps
   { id: "carrier", stores: ["*"], priority: 2, keywords: ["載具", "條碼", "發票", "統編", "receipt", "barcode"], options: [{ labels: { "zh-TW": "手機載具", "en-US": "Phone Barcode" }, subLabels: { "zh-TW": "存入手機條碼", "en-US": "Save to carrier" }, tts: "有載具，給您掃手機條碼" }, { labels: { "zh-TW": "不用發票", "en-US": "No Receipt" }, subLabels: { "zh-TW": "不印發票", "en-US": "No printout" }, tts: "不用發票，謝謝" }] },
   { id: "pay", stores: ["*"], priority: 2, keywords: ["現金", "刷卡", "付款", "支付", "悠遊卡", "line pay", "apple pay", "cash", "card"], options: [{ labels: { "zh-TW": "刷卡 / 行動支付", "en-US": "Card / Apple Pay" }, subLabels: { "zh-TW": "感應付款", "en-US": "NFC or card" }, tts: "我用刷卡或行動支付" }, { labels: { "zh-TW": "付現", "en-US": "Cash" }, subLabels: { "zh-TW": "現金付款", "en-US": "Pay in cash" }, tts: "我付現金" }] },
   { id: "bag", stores: ["*"], priority: 2, keywords: ["袋子", "提袋", "購物袋", "塑膠袋", "bag"], options: [{ labels: { "zh-TW": "要袋子", "en-US": "Need Bag" }, subLabels: { "zh-TW": "購買提袋", "en-US": "Buy bag" }, tts: "要袋子，謝謝" }, { labels: { "zh-TW": "自備袋子", "en-US": "No Bag" }, subLabels: { "zh-TW": "自己有袋子", "en-US": "I have my own" }, tts: "不用袋子，我自備了" }] },
   { id: "dinein", stores: ["*"], priority: 2, keywords: ["內用", "外帶", "這裡吃", "帶走", "to go", "dine in"], options: [{ labels: { "zh-TW": "內用", "en-US": "Dine In" }, subLabels: { "zh-TW": "在店裡吃", "en-US": "Eat here" }, tts: "內用，謝謝" }, { labels: { "zh-TW": "外帶", "en-US": "Takeout" }, subLabels: { "zh-TW": "外帶帶走", "en-US": "To go" }, tts: "外帶，謝謝" }] },
-  
-  // Low Priority: Universal greetings / confirmation (Always placed at bottom)
   { id: "greet", stores: ["*"], priority: 3, keywords: ["你好", "早安", "午安", "需要什麼", "怎麼了", "hello", "hi", "help"], options: [{ labels: { "zh-TW": "你好，謝謝", "en-US": "Hello / Thank you" }, subLabels: { "zh-TW": "基本禮貌", "en-US": "Greeting" }, tts: "你好，謝謝您！" }, { labels: { "zh-TW": "我需要幫忙", "en-US": "Need Assistance" }, subLabels: { "zh-TW": "說明需求", "en-US": "Ask help" }, tts: "您好，我需要一點協助。" }] }
 ];
 
@@ -222,7 +249,9 @@ export const CounterConversationScreen: React.FC = () => {
   const roamRef = useRef({ x: 260, y: 140, vx: -0.6, vy: -0.5 });
   const containerSizeRef = useRef({ width: 440, height: 760 });
 
-  // 💾 PERSISTENCE STORAGE LOADER (Web & Android APK)
+  const webRecRef = useRef<any>(null);
+
+  // 💾 PERSISTENCE STORAGE LOADER
   useEffect(() => {
     const loadSavedData = async () => {
       try {
@@ -258,7 +287,6 @@ export const CounterConversationScreen: React.FC = () => {
     loadSavedData();
   }, []);
 
-  // 💾 SAVE VENUES HELPER
   const persistVenues = async (updated: any[]) => {
     setVenues(updated);
     try {
@@ -270,7 +298,6 @@ export const CounterConversationScreen: React.FC = () => {
     } catch (e) {}
   };
 
-  // 💾 SAVE CARDS HELPER
   const persistCards = async (updated: any[]) => {
     setCardsData(updated);
     try {
@@ -282,7 +309,6 @@ export const CounterConversationScreen: React.FC = () => {
     } catch (e) {}
   };
 
-  // 🎨 SAVE CUSTOM WALLPAPER
   const saveCustomWallpaper = async () => {
     if (!wallpaperInputUrl.trim()) return;
     const newUrl = wallpaperInputUrl.trim();
@@ -322,11 +348,9 @@ export const CounterConversationScreen: React.FC = () => {
     return () => cancelAnimationFrame(animId);
   }, [isMochiChatOpen, isCounterMode]);
 
-  // 🧠 AUTO-LEARN CONVERSATION FUNCTION
   const learnNewConversationExchange = async (promptHeard: string, userReplyText: string) => {
     if (!promptHeard || !userReplyText || promptHeard.length < 2) return;
     
-    // Check if card already exists
     const exists = cardsData.some(c => c.keywords.some(k => k.toLowerCase() === promptHeard.toLowerCase()));
     if (exists) return;
 
@@ -338,7 +362,7 @@ export const CounterConversationScreen: React.FC = () => {
     const newCard = {
       id: `learned_${Date.now()}`,
       stores: [activeVenue.id],
-      priority: 1, // High priority for learned situation context
+      priority: 1,
       keywords: [promptHeard.toLowerCase()],
       options: [{
         labels: { "zh-TW": userReplyText, "en-US": enLabels },
@@ -351,13 +375,12 @@ export const CounterConversationScreen: React.FC = () => {
     persistCards(updated);
   };
 
-  // 🎙️ PROCESS RECOGNIZED TEXT (Triggers smart cards & translation)
   const processRecognizedText = async (rawText: string, isFinal: boolean) => {
     if (!rawText.trim()) return;
 
     let translated = '';
     if (isTranslateMode) {
-      setLiveStreamText('...');
+      setLiveStreamText(rawText + ' ...');
       if (isFinal) {
         const targetLang = currentLang;
         const sourceLang = currentLang === 'en-US' ? 'zh-TW' : 'en-US';
@@ -371,8 +394,7 @@ export const CounterConversationScreen: React.FC = () => {
     const lowerRaw = rawText.toLowerCase();
     const lowerTrans = translated.toLowerCase();
     
-    // Prioritize active situation matches
-    const currentVenueCards = cardsData.filter(c => c.stores.includes(activeVenue.id) || c.stores.includes('*'));
+    const currentVenueCards = cardsData.filter(c => c.stores.includes(activeVenue.id) || (activeVenue.baseType && c.stores.includes(activeVenue.baseType)) || c.stores.includes('*'));
     const triggeredReplies: any[] = [];
 
     currentVenueCards.forEach(card => {
@@ -387,8 +409,7 @@ export const CounterConversationScreen: React.FC = () => {
       }
     });
 
-    // 🤖 GEMINI AUTO TRIGGER: If no known keyword matches on final speech, call Gemini to generate dynamic replies
-    if (triggeredReplies.length === 0 && isFinal && rawText.length > 2) {
+    if (triggeredReplies.length === 0 && isFinal && rawText.length > 1) {
       const dynamicAiReplies = await fetchGeminiDynamicReplies(rawText, activeVenue.name['zh-TW'] || activeVenue.short);
       if (dynamicAiReplies && Array.isArray(dynamicAiReplies)) {
         dynamicAiReplies.forEach((r, idx) => {
@@ -401,29 +422,64 @@ export const CounterConversationScreen: React.FC = () => {
       }
     }
 
-    setSmartReplies(triggeredReplies);
+    if (triggeredReplies.length > 0) {
+      setSmartReplies(triggeredReplies);
+    }
   };
 
-  // 🎙️ NATIVE SPEECH RECOGNITION (Android & iOS)
-  useSpeechRecognitionEvent('start', () => setIsLiveActive(true));
-  useSpeechRecognitionEvent('end', () => {
-    if (isLiveActive && Platform.OS !== 'web') {
-      try {
-        const targetLocale = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
-        ExpoSpeechRecognitionModule.start({ lang: targetLocale, interimResults: true, continuous: true });
-      } catch (e) {}
-    }
-  });
-  useSpeechRecognitionEvent('result', (event) => {
-    const transcript = event.results[0]?.transcript || '';
-    processRecognizedText(transcript, event.isFinal);
-  });
-  useSpeechRecognitionEvent('error', (event) => {
-    console.log('Speech Recognition Error:', event.error, event.message);
-  });
+  // 🎙️ FIXED NATIVE SPEECH EVENT LISTENERS (Android APK via NativeSpeechModule.addListener)
+  useEffect(() => {
+    if (Platform.OS === 'web' || !NativeSpeechModule) return;
 
-  // 🌐 WEB SPEECH RECOGNITION FALLBACK (Safari & Chrome Web)
-  const webRecRef = useRef<any>(null);
+    const subStart = attachNativeSpeechEvent('start', () => {
+      setIsLiveActive(true);
+    });
+
+    const subEnd = attachNativeSpeechEvent('end', () => {
+      if (isLiveActive) {
+        setTimeout(() => {
+          try {
+            const targetLocale = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
+            NativeSpeechModule.start({
+              lang: targetLocale,
+              interimResults: true,
+              continuous: true,
+            });
+          } catch (e) {}
+        }, 250);
+      }
+    });
+
+    const subResult = attachNativeSpeechEvent('result', (event: any) => {
+      const transcript = event?.results?.[0]?.transcript || event?.value?.[0] || '';
+      const isFinal = Boolean(event?.isFinal);
+      if (transcript) {
+        processRecognizedText(transcript, isFinal);
+      }
+    });
+
+    const subError = attachNativeSpeechEvent('error', (event: any) => {
+      console.warn('Native Speech Error:', event?.error, event?.message);
+      // Auto-recover on silence/no-match timeouts while active
+      if (isLiveActive && (event?.error === 'no-speech' || event?.error === '7' || event?.error === 'client')) {
+        setTimeout(() => {
+          try {
+            const targetLocale = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
+            NativeSpeechModule.start({ lang: targetLocale, interimResults: true, continuous: true });
+          } catch (e) {}
+        }, 400);
+      }
+    });
+
+    return () => {
+      subStart?.remove?.();
+      subEnd?.remove?.();
+      subResult?.remove?.();
+      subError?.remove?.();
+    };
+  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id]);
+
+  // 🌐 SAFE WEB SPEECH RECOGNITION (Laptop Chrome & iOS Safari)
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -439,8 +495,18 @@ export const CounterConversationScreen: React.FC = () => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           interim += event.results[i][0].transcript;
         }
-        const isFinal = event.results[event.results.length - 1].isFinal;
+        const isFinal = event.results[event.results.length - 1]?.isFinal || false;
         processRecognizedText(interim.trim(), isFinal);
+      };
+
+      rec.onerror = (e: any) => {
+        console.warn('Web Speech Recognition error:', e.error);
+      };
+
+      rec.onend = () => {
+        if (isLiveActive) {
+          try { rec.start(); } catch (e) {}
+        }
       };
 
       webRecRef.current = rec;
@@ -450,7 +516,7 @@ export const CounterConversationScreen: React.FC = () => {
     }
   }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id]);
 
-  // 🎛️ TOGGLE LISTENING
+  // 🎛️ TOGGLE LISTENING (Handles Microphone + Speech Recognizer Permissions)
   const toggleLiveListening = async () => {
     const nextState = !isLiveActive;
 
@@ -458,29 +524,37 @@ export const CounterConversationScreen: React.FC = () => {
       const targetLocale = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
 
       if (Platform.OS !== 'web') {
-        const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-        if (!result.granted) {
-          Alert.alert("Permission Required", "Please allow microphone access to use live transcription.");
+        if (!NativeSpeechModule) {
+          Alert.alert('Speech Engine Unavailable', 'Native speech module could not be initialized.');
           return;
         }
         try {
-          await ExpoSpeechRecognitionModule.start({
+          const perm = await NativeSpeechModule.requestPermissionsAsync();
+          if (!perm.granted) {
+            Alert.alert('需要麥克風權限 (Permission Required)', '請允許麥克風與語音辨識權限以啟用即時字幕。');
+            return;
+          }
+          setIsLiveActive(true);
+          setLiveStreamText(currentLang === 'zh-TW' ? '請開始說話...' : 'Listening for speech...');
+          await NativeSpeechModule.start({
             lang: targetLocale,
             interimResults: true,
             continuous: true,
           });
-          setIsLiveActive(true);
-        } catch (e) {
+        } catch (e: any) {
           console.error('Failed to start native recognition:', e);
+          Alert.alert('語音啟動失敗 (Mic Error)', e?.message || 'Please check that the Google app is installed and enabled.');
+          setIsLiveActive(false);
         }
       } else {
         setIsLiveActive(true);
+        setLiveStreamText(currentLang === 'zh-TW' ? '請開始說話...' : 'Listening for speech...');
         try { webRecRef.current?.start(); } catch (e) {}
       }
     } else {
       setIsLiveActive(false);
       if (Platform.OS !== 'web') {
-        try { await ExpoSpeechRecognitionModule.stop(); } catch (e) {}
+        try { await NativeSpeechModule?.stop(); } catch (e) {}
       } else {
         try { webRecRef.current?.stop(); } catch (e) {}
       }
@@ -510,13 +584,12 @@ export const CounterConversationScreen: React.FC = () => {
     speakSentence(displayToClerk, speechLang);
     setSmartReplies([]); 
 
-    // If clerk had said something, auto-learn this reply
-    if (liveStreamText && liveStreamText.length > 2) {
+    if (liveStreamText && liveStreamText.length > 2 && !liveStreamText.includes('請開始說話')) {
       learnNewConversationExchange(liveStreamText, displayToClerk);
     }
   };
 
-  // 🛰️ COMPREHENSIVE GPS RESOLVER (Auto timeout 15s)
+  // 🛰️ INDOOR-SAFE GPS RESOLVER (Uses Balanced Wi-Fi/Cell Accuracy + LastKnown Fallback for YZU Building 7)
   const scanLiveLocation = async () => {
     setIsAutoDetecting(true);
     setNearbyVenueFound(null);
@@ -530,44 +603,71 @@ export const CounterConversationScreen: React.FC = () => {
         return;
       }
 
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-      const { latitude, longitude } = loc.coords;
-
-      // 1. Android/Google Native Geocoding
-      const reverseList = await Location.reverseGeocodeAsync({ latitude, longitude });
-      let nativePlaceName = '';
-      if (reverseList && reverseList.length > 0) {
-        const addr = reverseList[0];
-        nativePlaceName = addr.name || addr.street || addr.district || '';
+      // Fast indoor resolution: Try Balanced with a 5s race timeout, fallback to LastKnownPosition
+      let loc: any = null;
+      try {
+        loc = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('GPS_TIMEOUT')), 5000))
+        ]);
+      } catch (err) {
+        loc = await Location.getLastKnownPositionAsync();
       }
 
-      // 2. Query OSM for landmarks/university/library/cafes
-      const query = `[out:json][timeout:8];(
-        node(around:80,${latitude},${longitude})["name"];
-        way(around:80,${latitude},${longitude})["name"];
-      );out tags center 1;`;
-      
-      const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-      const data = await res.json();
+      if (!loc || !loc.coords) {
+        Alert.alert('定位逾時 (Location Timeout)', '請確認手機已開啟定位服務與 Wi-Fi。');
+        setIsAutoDetecting(false);
+        return;
+      }
 
+      const { latitude, longitude } = loc.coords;
+
+      // 1. Reverse Geocode via OS
+      let nativePlaceName = '';
+      if (Platform.OS !== 'web') {
+        try {
+          const reverseList = await Location.reverseGeocodeAsync({ latitude, longitude });
+          if (reverseList && reverseList.length > 0) {
+            const addr = reverseList[0];
+            nativePlaceName = addr.name || addr.street || addr.district || '';
+          }
+        } catch (e) {}
+      }
+
+      // 2. Query OSM Overpass (150m radius to easily catch YZU buildings, 7-Eleven, and campus spots)
       let detectedZh = '';
       let detectedEn = '';
       let detectedType = 'other';
 
-      if (data?.elements?.length > 0) {
-        const poi = data.elements[0];
-        detectedZh = poi.tags['name:zh'] || poi.tags.name || nativePlaceName;
-        detectedEn = poi.tags['name:en'] || poi.tags['int_name'] || '';
+      try {
+        const query = `[out:json][timeout:6];(
+          node(around:150,${latitude},${longitude})["name"];
+          way(around:150,${latitude},${longitude})["name"];
+        );out tags center 5;`;
         
-        const type = poi.tags['amenity'] || poi.tags['shop'] || poi.tags['building'];
-        if (type === 'convenience' || type === 'supermarket') detectedType = 'cvs';
-        else if (type === 'cafe' || type === 'beverages') detectedType = 'drink';
-        else if (type === 'pharmacy' || type === 'hospital' || type === 'clinic') detectedType = 'pharmacy';
-        else if (type === 'restaurant' || type === 'fast_food') detectedType = 'buffet';
-        else if (type === 'hairdresser') detectedType = 'salon';
-        else if (type === 'university' || type === 'library' || type === 'school') detectedType = 'university';
-      } else {
-        detectedZh = nativePlaceName || '目前位置';
+        const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+        const data = await res.json();
+
+        if (data?.elements?.length > 0) {
+          const poi = data.elements[0];
+          detectedZh = poi.tags['name:zh'] || poi.tags.name || nativePlaceName;
+          detectedEn = poi.tags['name:en'] || poi.tags['int_name'] || '';
+          
+          const type = poi.tags['amenity'] || poi.tags['shop'] || poi.tags['building'] || '';
+          if (type === 'convenience' || type === 'supermarket' || detectedZh.includes('7-ELEVEN') || detectedZh.includes('全家')) detectedType = 'cvs';
+          else if (type === 'cafe' || type === 'beverages') detectedType = 'drink';
+          else if (type === 'pharmacy' || type === 'hospital' || type === 'clinic') detectedType = 'pharmacy';
+          else if (type === 'restaurant' || type === 'fast_food') detectedType = 'buffet';
+          else if (type === 'hairdresser') detectedType = 'salon';
+          else if (type === 'university' || type === 'library' || type === 'school' || detectedZh.includes('元智') || detectedZh.includes('館')) detectedType = 'university';
+        }
+      } catch (osmErr) {
+        console.warn('OSM lookup fallback:', osmErr);
+      }
+
+      if (!detectedZh) {
+        detectedZh = nativePlaceName || '元智大學 / 目前位置';
+        if (detectedZh.includes('元智') || detectedZh.includes('遠東路')) detectedType = 'university';
       }
 
       if (!detectedEn && detectedZh) {
@@ -577,7 +677,7 @@ export const CounterConversationScreen: React.FC = () => {
         detectedZh = await realTranslate(detectedEn, 'en-US', 'zh-TW');
       }
 
-      const baseStore = venues.find(s => s.id === detectedType) || DEFAULT_STORES_DATA[7];
+      const baseStore = venues.find(s => s.id === detectedType) || DEFAULT_STORES_DATA[5];
       const newDynamicVenue = {
         id: `loc_${Date.now()}`,
         baseType: detectedType,
@@ -586,26 +686,26 @@ export const CounterConversationScreen: React.FC = () => {
           'en-US': detectedEn 
         },
         short: currentLang === 'zh-TW' ? detectedZh.substring(0, 10) : detectedEn.substring(0, 14),
-        emoji: detectedType === 'university' ? '🏫' : (detectedType === 'drink' ? '☕' : '📍'),
+        emoji: detectedType === 'university' ? '🏫' : (detectedType === 'cvs' ? '🏪' : (detectedType === 'drink' ? '☕' : '📍')),
         coverImage: baseStore.coverImage,
         mochi: baseStore.mochi
       };
 
       setNearbyVenueFound(newDynamicVenue);
+      setActiveVenue(newDynamicVenue); // Immediately switch active venue so user sees it right away
 
-      // Auto dismiss after 15 seconds if not added or accepted
       autoDetectTimerRef.current = setTimeout(() => {
         setNearbyVenueFound(null);
       }, 15000);
 
     } catch (e) {
       console.error('GPS Detection Error:', e);
+      Alert.alert('定位失敗 (Location Error)', '無法取得目前座標，請稍後再試。');
     } finally {
       setIsAutoDetecting(false);
     }
   };
 
-  // ➕ ADD DETECTED LOCATION AS A PERMANENT SITUATION
   const handleAddLocationAsSituation = async (venueToAdd: any) => {
     if (!venueToAdd) return;
     if (autoDetectTimerRef.current) clearTimeout(autoDetectTimerRef.current);
@@ -647,8 +747,7 @@ export const CounterConversationScreen: React.FC = () => {
       setClerkMessage(finalSpeech);
       speakSentence(finalSpeech, speechLang);
       
-      // Auto-learn this custom text response for future encounters
-      if (liveStreamText && liveStreamText.length > 2) {
+      if (liveStreamText && liveStreamText.length > 2 && !liveStreamText.includes('請開始說話')) {
         learnNewConversationExchange(liveStreamText, finalSpeech);
       }
 
@@ -657,16 +756,9 @@ export const CounterConversationScreen: React.FC = () => {
     }
   };
 
-  // 🏷️ GET PRIORITIZED QUESTIONS (Specific Situation items first, General greeting & thanks at bottom)
   const getPrioritizedCards = () => {
     const valid = cardsData.filter(c => c.stores.includes(activeVenue.id) || (activeVenue.baseType && c.stores.includes(activeVenue.baseType)) || c.stores.includes('*'));
-    
-    // Sort ascending: priority 1 (Specific answers) -> priority 2 (Payment/bags) -> priority 3 (Greetings/yes/no/thanks)
-    return valid.sort((a, b) => {
-      const pA = a.priority || 2;
-      const pB = b.priority || 2;
-      return pA - pB;
-    });
+    return valid.sort((a, b) => (a.priority || 2) - (b.priority || 2));
   };
 
   const activeBotMedia = isLiveActive ? LOCAL_BOT_ASSETS.listen : (activeVenue.mochi || LOCAL_BOT_ASSETS.floating);
@@ -695,7 +787,7 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* 🛰️ SATELLITE PILL: DIRECTLY UNDER THE SATELLITE ICON WITH "ADD SITUATION" */}
+        {/* 🛰️ SATELLITE PILL */}
         {nearbyVenueFound && (
           <View style={styles.satelliteDropdownContainer}>
             <View style={styles.satelliteResultCard}>
@@ -852,8 +944,7 @@ export const CounterConversationScreen: React.FC = () => {
 
   return (
     <View style={styles.screen}>
-      
-      {/* 🟠 Clerk-Facing Half (Rotated 180 deg for person opposite counter) */}
+      {/* 🟠 Clerk-Facing Half */}
       <View style={[styles.splitTop, { paddingTop: insets.bottom }]}>
         <View style={styles.splitTopInner}>
           <Text style={[styles.clerkFacingSub, {fontSize: 20 * fontScale}]}>{currentLang === 'zh-TW' ? '您好' : 'Hello'}</Text>
@@ -880,7 +971,7 @@ export const CounterConversationScreen: React.FC = () => {
 
       <View style={styles.splitDivider} />
 
-      {/* ⚫ User-Facing Half (Live Transcription & Top-Priority Smart Replies) */}
+      {/* ⚫ User-Facing Half */}
       <View style={[styles.splitBottom, { paddingBottom: insets.bottom }]}>
         <View style={styles.bottomHeaderGroup}>
            <View style={styles.bottomHeader}>
@@ -902,7 +993,6 @@ export const CounterConversationScreen: React.FC = () => {
               </View>
            </View>
 
-           {/* 💡 1-Tap Triggered Replies (Contextual matches swap directly up here) */}
            {smartReplies.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 10}}>
                  {smartReplies.map((reply: any) => (
@@ -913,7 +1003,6 @@ export const CounterConversationScreen: React.FC = () => {
               </ScrollView>
            )}
 
-           {/* 🎙️ LIVE SUBTITLE TRANSCRIBE BOX */}
            {liveStreamText ? (
              <View style={styles.liveSubtitleBox}>
                {isTranslateMode && currentLang === 'en-US' && <Text style={{fontSize: 10, color: THEME.translateAccent, marginBottom: 2}}>A/文 Translated</Text>}
@@ -922,7 +1011,6 @@ export const CounterConversationScreen: React.FC = () => {
            ) : null}
         </View>
 
-        {/* 📋 PRIORITIZED CONVERSATION QUESTIONS LIST */}
         <ScrollView style={styles.questionsList} contentContainerStyle={{ paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
           {getPrioritizedCards().map((card) => (
              card.options.map((opt, idx) => (
@@ -1063,8 +1151,6 @@ const styles = StyleSheet.create({
   topRightControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBtn: { padding: 6, borderRadius: 8, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   iconText: { fontSize: 18, color: THEME.textMuted, fontWeight: '700' },
-  
-  // 🛰️ Satellite Detection Dropdown directly underneath the top bar
   satelliteDropdownContainer: { paddingHorizontal: 16, marginBottom: 12, zIndex: 100 },
   satelliteResultCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: THEME.surfaceLight, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: THEME.success },
   satelliteFoundLabel: { fontSize: 11, color: THEME.textMuted, fontWeight: '600' },
@@ -1073,12 +1159,10 @@ const styles = StyleSheet.create({
   addSituationPillBtn: { backgroundColor: THEME.orange, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   addSituationPillText: { color: '#000', fontSize: 12, fontWeight: '700' },
   dismissPillBtn: { paddingHorizontal: 8, paddingVertical: 6, justifyContent: 'center', alignItems: 'center' },
-  
   mainScroll: { flex: 1 },
   greetingSection: { marginBottom: 20, marginTop: 8, paddingHorizontal: 16 },
   greetingTitle: { fontSize: 32, fontWeight: '800', color: THEME.text, marginBottom: 4, fontFamily: THEME.fontFamily },
   greetingSub: { fontSize: 16, fontWeight: '500', color: THEME.textMuted, fontFamily: THEME.fontFamily },
-  
   heroCard: { backgroundColor: THEME.surface, borderRadius: 24, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: THEME.border, alignItems: 'center', marginHorizontal: 16 },
   heroImageCentered: { width: '100%', height: 190, resizeMode: 'cover' },
   heroContent: { padding: 20, width: '100%' },
@@ -1086,7 +1170,6 @@ const styles = StyleSheet.create({
   startModeBtn: { backgroundColor: THEME.text, paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: 12, width: '100%' },
   startModeBtnText: { color: THEME.bg, fontSize: 16, fontWeight: '700', fontFamily: THEME.fontFamily },
   heroHint: { fontSize: 12, color: THEME.textMuted, textAlign: 'center', fontFamily: THEME.fontFamily },
-  
   carouselSection: { paddingLeft: 16 },
   carouselTitle: { fontSize: 16, fontWeight: '700', color: THEME.text, marginBottom: 14, fontFamily: THEME.fontFamily },
   carouselScroll: { gap: 14, paddingBottom: 20 },
@@ -1094,7 +1177,6 @@ const styles = StyleSheet.create({
   carouselItemImg: { width: 72, height: 72, borderRadius: 16, marginBottom: 8, borderWidth: 2, borderColor: 'transparent' },
   carouselItemImgActive: { borderColor: THEME.orange },
   carouselItemText: { fontSize: 12, color: THEME.textMuted, fontWeight: '500', fontFamily: THEME.fontFamily, textAlign: 'center' },
-  
   splitTop: { flex: 1, backgroundColor: THEME.orange, justifyContent: 'center', alignItems: 'center' },
   splitTopInner: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', padding: 24, transform: [{ rotate: '180deg' }] },
   clerkFacingSub: { fontWeight: '800', color: '#000', marginBottom: 4, fontFamily: THEME.fontFamily },
@@ -1106,7 +1188,6 @@ const styles = StyleSheet.create({
   clerkSecondaryMessage: { fontWeight: '700', color: 'rgba(0,0,0,0.6)', marginTop: 16, fontFamily: THEME.fontFamily },
   splitDivider: { height: 4, backgroundColor: THEME.orange },
   splitBottom: { flex: 1.2, backgroundColor: THEME.bg, paddingHorizontal: 16, paddingTop: 16 },
-  
   bottomHeaderGroup: { marginBottom: 12, zIndex: 10 },
   bottomHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   venueDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.surface, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: THEME.border },
@@ -1114,7 +1195,6 @@ const styles = StyleSheet.create({
   liveStatusPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.surface, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: THEME.border, gap: 6 },
   liveStatusDot: { fontSize: 10 },
   liveStatusText: { color: THEME.text, fontSize: 14, fontWeight: '600', fontFamily: THEME.fontFamily },
-  
   liveSubtitleBox: { backgroundColor: THEME.surfaceLight, padding: 12, borderRadius: 10, borderWidth: 1.5, borderColor: THEME.success },
   liveSubtitleText: { color: THEME.success, fontWeight: '700', fontFamily: THEME.fontFamily },
   smartReplyBtn: { backgroundColor: THEME.surface, borderWidth: 1.5, borderColor: THEME.orange, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
@@ -1130,11 +1210,9 @@ const styles = StyleSheet.create({
   actionBtnSecondaryText: { color: THEME.text, fontSize: 16, fontWeight: '600', fontFamily: THEME.fontFamily },
   actionBtnPrimary: { flex: 1, backgroundColor: THEME.surfaceLight, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   actionBtnPrimaryText: { color: THEME.text, fontSize: 16, fontWeight: '600', fontFamily: THEME.fontFamily },
-  
   roamingMochi: { position: 'absolute', zIndex: 99, alignItems: 'center' },
   mochiOrb: { width: 56, height: 56, borderRadius: 28, borderWidth: 2, borderColor: THEME.surface, overflow: 'hidden', backgroundColor: THEME.bg },
   mochiOrbCounterMode: { position: 'absolute', bottom: 90, right: 20, width: 56, height: 56, borderRadius: 28, borderWidth: 2, borderColor: THEME.border, overflow: 'hidden', backgroundColor: THEME.bg, zIndex: 100 },
-  
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
   settingsModalCardFull: { width: '100%', height: '100%', backgroundColor: THEME.bg },
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 },
@@ -1142,7 +1220,6 @@ const styles = StyleSheet.create({
   settingsSectionTitle: { fontSize: 18, fontWeight: '700', color: THEME.text, marginBottom: 12, marginTop: 12 },
   fontBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: THEME.border, alignItems: 'center' },
   fontBtnText: { color: THEME.text, fontSize: 16, fontWeight: '600' },
-  
   mochiModalCard: { width: '90%', maxWidth: 360, borderRadius: 20, padding: 24, backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border },
   mochiChatCard: { width: '95%', maxWidth: 460, height: '75%', borderRadius: 24, backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border, overflow: 'hidden' },
   mochiChatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: THEME.border },
@@ -1156,7 +1233,6 @@ const styles = StyleSheet.create({
   chatInputRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderTopWidth: 1, borderTopColor: THEME.border, backgroundColor: THEME.bg },
   chatInputField: { flex: 1, minHeight: 44, borderRadius: 22, backgroundColor: THEME.surfaceLight, paddingHorizontal: 16, fontSize: 15, color: THEME.text },
   chatSendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: THEME.orange, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
-
   langOptionItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, marginBottom: 8, backgroundColor: THEME.bg },
   langOptionText: { fontSize: 15, color: THEME.text, fontFamily: THEME.fontFamily },
   settingsDivider: { height: 1, backgroundColor: THEME.border, marginVertical: 24 },
@@ -1169,11 +1245,9 @@ const styles = StyleSheet.create({
   settingHint: { color: THEME.textMuted, fontSize: 13, lineHeight: 20, marginBottom: 16 },
   closeBtn: { paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   closeBtnText: { fontSize: 14, fontWeight: '600', color: THEME.textMuted, fontFamily: THEME.fontFamily },
-
   inputField: { width: '100%', minHeight: 56, borderRadius: 10, backgroundColor: THEME.bg, borderWidth: 1, borderColor: THEME.border, padding: 14, fontSize: 15, color: THEME.text, marginBottom: 12 },
   sendBtn: { width: '100%', paddingVertical: 14, borderRadius: 10, backgroundColor: THEME.orange, alignItems: 'center' },
   sendBtnText: { color: '#000', fontSize: 15, fontWeight: '700', fontFamily: THEME.fontFamily },
-
   sosCardFull: { backgroundColor: '#FF3B30', borderRadius: 20, padding: 24 },
   sosCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   sosTitle: { color: '#FFF', fontSize: 22, fontWeight: '800', fontFamily: THEME.fontFamily },
@@ -1187,3 +1261,5 @@ const styles = StyleSheet.create({
   sosCloseBtn: { paddingVertical: 12, alignItems: 'center' },
   sosCloseBtnText: { color: '#FFF', fontSize: 15, fontWeight: '600' }
 });
+
+export default CounterConversationScreen;
