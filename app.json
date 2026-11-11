@@ -1,58 +1,58 @@
-{
-  "expo": {
-    "name": "Tacit 默契",
-    "slug": "tacit-app",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "light",
-    "scheme": "tacit",
-    "icon": "./assets/splash.png",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1a1a1a"
-    },
-    "android": {
-      "package": "com.tacit.app",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/splash.png",
-        "backgroundColor": "#1a1a1a"
-      },
-      "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.INTERNET",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
-      ]
-    },
-    "ios": {
-      "bundleIdentifier": "com.tacit.app",
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "Tacit needs access to your microphone to transcribe speech to text at store counters.",
-        "NSSpeechRecognitionUsageDescription": "Tacit uses speech recognition to convert store clerk conversation into text in real time.",
-        "NSLocationWhenInUseUsageDescription": "Tacit uses your location to automatically detect nearby shops and counter types."
-      }
-    },
-    "owner": "lets-go-team",
-    "extra": {
-      "eas": {
-        "projectId": "b4026932-4655-4b54-8336-422709020ced"
-      }
-    },
-    "plugins": [
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "Tacit needs access to your microphone to transcribe speech to text at store counters.",
-          "speechRecognitionPermission": "Tacit uses speech recognition to convert store clerk conversation into text in real time."
-        }
-      ],
-      [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "Tacit uses your location to automatically detect nearby shops and counter types."
-        }
-      ]
-    ]
-  }
+﻿{
+    "expo":  {
+                 "name":  "看得見的對話 Mochi",
+                 "slug":  "tacit-app",
+                 "version":  "1.0.0",
+                 "orientation":  "portrait",
+                 "userInterfaceStyle":  "light",
+                 "scheme":  "tacit",
+                 "icon":  "./assets/splash.png",
+                 "splash":  {
+                                "image":  "./assets/splash.png",
+                                "resizeMode":  "contain",
+                                "backgroundColor":  "#1a1a1a"
+                            },
+                 "android":  {
+                                 "package":  "com.tacit.app",
+                                 "adaptiveIcon":  {
+                                                      "foregroundImage":  "./assets/splash.png",
+                                                      "backgroundColor":  "#1a1a1a"
+                                                  },
+                                 "permissions":  [
+                                                     "android.permission.RECORD_AUDIO",
+                                                     "android.permission.INTERNET",
+                                                     "android.permission.ACCESS_FINE_LOCATION",
+                                                     "android.permission.ACCESS_COARSE_LOCATION"
+                                                 ]
+                             },
+                 "ios":  {
+                             "bundleIdentifier":  "com.tacit.app",
+                             "infoPlist":  {
+                                               "NSMicrophoneUsageDescription":  "Tacit needs access to your microphone to transcribe speech to text at store counters.",
+                                               "NSSpeechRecognitionUsageDescription":  "Tacit uses speech recognition to convert store clerk conversation into text in real time.",
+                                               "NSLocationWhenInUseUsageDescription":  "Tacit uses your location to automatically detect nearby shops and counter types."
+                                           }
+                         },
+                 "owner":  "lets-go-team",
+                 "extra":  {
+                               "eas":  {
+                                           "projectId":  "b4026932-4655-4b54-8336-422709020ced"
+                                       }
+                           },
+                 "plugins":  [
+                                 [
+                                     "expo-speech-recognition",
+                                     {
+                                         "microphonePermission":  "Tacit needs access to your microphone to transcribe speech to text at store counters.",
+                                         "speechRecognitionPermission":  "Tacit uses speech recognition to convert store clerk conversation into text in real time."
+                                     }
+                                 ],
+                                 [
+                                     "expo-location",
+                                     {
+                                         "locationWhenInUsePermission":  "Tacit uses your location to automatically detect nearby shops and counter types."
+                                     }
+                                 ]
+                             ]
+             }
 }
