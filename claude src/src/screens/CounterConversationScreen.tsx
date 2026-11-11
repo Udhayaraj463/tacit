@@ -5,7 +5,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Pressable,
   ScrollView,
   Modal,
   ActivityIndicator,
@@ -13,7 +12,6 @@ import {
   TextInput,
   Platform,
   Alert,
-  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -68,10 +66,10 @@ const THEME = {
 export type SupportedLang = 'en-US' | 'zh-TW';
 
 const STORAGE_KEYS = {
-  VENUES: 'mochi_custom_venues_v3',
-  CARDS: 'mochi_custom_cards_v3',
-  WALLPAPERS: 'mochi_wallpapers_v3',
-  FONT_SCALE: 'mochi_font_scale_v3',
+  VENUES: 'mochi_custom_venues_v4',
+  CARDS: 'mochi_custom_cards_v4',
+  WALLPAPERS: 'mochi_wallpapers_v4',
+  FONT_SCALE: 'mochi_font_scale_v4',
 };
 
 const getGeminiApiKey = () => {
@@ -136,9 +134,19 @@ export const FONT_SCALE_OPTIONS = [
   { label: '特大 (150%)', short: 'MAX', val: 1.5 },
 ];
 
+export const VENUE_TEMPLATES = [
+  { id: 'cvs', label: '🏪 超商', emoji: '🏪', coverImage: 'https://images.unsplash.com/photo-1601599561096-f87c95fff1e9?w=1200' },
+  { id: 'drink', label: '🧋 咖啡飲料', emoji: '🧋', coverImage: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1200' },
+  { id: 'breakfast', label: '🥪 早餐店', emoji: '🥪', coverImage: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=1200' },
+  { id: 'pharmacy', label: '💊 藥局診所', emoji: '💊', coverImage: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=1200' },
+  { id: 'buffet', label: '🍱 便當餐廳', emoji: '🍱', coverImage: 'https://images.unsplash.com/photo-1548943487-a2e4b43b5930?w=1200' },
+  { id: 'other', label: '🏬 一般場所', emoji: '🏬', coverImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200' },
+];
+
 const DEFAULT_STORES_DATA = [
   {
     id: 'cvs',
+    baseType: 'cvs',
     name: { 'zh-TW': '便利商店', 'en-US': 'Convenience Store' },
     short: { 'zh-TW': '便利商店', 'en-US': '7-Eleven / CVS' },
     emoji: '🏪',
@@ -146,6 +154,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'drink',
+    baseType: 'drink',
     name: { 'zh-TW': '咖啡・飲料店', 'en-US': 'Cafe & Drinks' },
     short: { 'zh-TW': '咖啡飲料', 'en-US': 'Cafe' },
     emoji: '🧋',
@@ -153,6 +162,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'breakfast',
+    baseType: 'breakfast',
     name: { 'zh-TW': '早餐店', 'en-US': 'Breakfast Shop' },
     short: { 'zh-TW': '早餐店', 'en-US': 'Breakfast' },
     emoji: '🥪',
@@ -160,6 +170,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'pharmacy',
+    baseType: 'pharmacy',
     name: { 'zh-TW': '藥局・診所', 'en-US': 'Pharmacy & Clinic' },
     short: { 'zh-TW': '藥局診所', 'en-US': 'Pharmacy' },
     emoji: '💊',
@@ -167,6 +178,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'buffet',
+    baseType: 'buffet',
     name: { 'zh-TW': '自助餐・便當', 'en-US': 'Bento & Buffet' },
     short: { 'zh-TW': '自助餐便當', 'en-US': 'Buffet' },
     emoji: '🍱',
@@ -174,6 +186,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'university',
+    baseType: 'university',
     name: { 'zh-TW': '校園・圖書館', 'en-US': 'Campus & Library' },
     short: { 'zh-TW': '校園圖書館', 'en-US': 'Campus' },
     emoji: '🏫',
@@ -181,6 +194,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'salon',
+    baseType: 'salon',
     name: { 'zh-TW': '美髮店', 'en-US': 'Hair Salon' },
     short: { 'zh-TW': '美髮店', 'en-US': 'Salon' },
     emoji: '✂️',
@@ -188,6 +202,7 @@ const DEFAULT_STORES_DATA = [
   },
   {
     id: 'other',
+    baseType: 'other',
     name: { 'zh-TW': '一般商店', 'en-US': 'General Place' },
     short: { 'zh-TW': '一般商店', 'en-US': 'General' },
     emoji: '🏬',
@@ -195,9 +210,7 @@ const DEFAULT_STORES_DATA = [
   },
 ];
 
-// 📋 COMPLETE TAIWAN COUNTER CARDS (With Clerk Question Titles for 180° Offline Clerk Pick Grid & User Answer Grid)
 const DEFAULT_CARDS_DATA = [
-  // Cafe & Drink Specific (Matches Image 3 Offline Clerk Grid)
   {
     id: 'temp_choice',
     stores: ['drink', 'cvs', 'breakfast'],
@@ -294,19 +307,6 @@ const DEFAULT_CARDS_DATA = [
     ],
   },
   {
-    id: 'campus_inquire',
-    stores: ['university'],
-    priority: 1,
-    question: { 'zh-TW': '請問需要什麼協助？', 'en-US': 'How can I help you?' },
-    keywords: ['學生證', '借書', '找哪位', '教室', 'library', 'id', 'card'],
-    options: [
-      { labels: { 'zh-TW': '借還書 / 查資料', 'en-US': 'Library Books' }, subLabels: { 'zh-TW': '圖書館櫃檯服務', 'en-US': 'Borrow/return books' }, tts: '您好，我需要借還書或查資料協助' },
-      { labels: { 'zh-TW': '出示學生證', 'en-US': 'Show Student ID' }, subLabels: { 'zh-TW': '驗證身分', 'en-US': 'Verify student ID' }, tts: '這是我的學生證' },
-    ],
-  },
-
-  // Universal Checkout & Counter Questions (Matches Images 2 & 3)
-  {
     id: 'dinein',
     stores: ['*'],
     priority: 2,
@@ -382,7 +382,6 @@ const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 
 
 export const CounterConversationScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
 
   const [currentLang, setCurrentLang] = useState<SupportedLang>('zh-TW');
   const [isTranslateMode, setIsTranslateMode] = useState(false);
@@ -401,13 +400,13 @@ export const CounterConversationScreen: React.FC = () => {
   const [clerkLabel, setClerkLabel] = useState('');
   const [clerkSub, setClerkSub] = useState('');
 
-  // Active Interactive Card / Amount Confirmation (Matches Image 2 & StagePanels.tsx)
+  // Active Interactive Card / Amount Confirmation
   const [activePromptCard, setActivePromptCard] = useState<any>(null);
   const [chosenOption, setChosenOption] = useState<any>(null);
   const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [amountConfirmed, setAmountConfirmed] = useState<boolean | undefined>(undefined);
 
-  // 180° Offline Clerk Pick Modal States (Matches Image 3 & ClerkPick.tsx)
+  // 180° Offline Clerk Pick Modal States
   const [isClerkPickOpen, setIsClerkPickOpen] = useState(false);
   const [clerkPickView, setClerkPickView] = useState<'grid' | 'amount'>('grid');
   const [clerkDigits, setClerkDigits] = useState('');
@@ -417,14 +416,25 @@ export const CounterConversationScreen: React.FC = () => {
   const [isTypeToClerkOpen, setIsTypeToClerkOpen] = useState(false);
   const [customTypeInput, setCustomTypeInput] = useState('');
 
-  // GPS Detection States
+  // Custom Add Q&A Modal States (For saving new out-of-data questions & answers)
+  const [isAddQaOpen, setIsAddQaOpen] = useState(false);
+  const [newQuestionInput, setNewQuestionInput] = useState('');
+  const [newAnswerInput, setNewAnswerInput] = useState('');
+  const [saveToastMsg, setSaveToastMsg] = useState('');
+
+  // GPS Detection & Editable Situation Creator States
   const [isAutoDetecting, setIsAutoDetecting] = useState(false);
   const [nearbyVenueFound, setNearbyVenueFound] = useState<any>(null);
-  const autoDetectTimerRef = useRef<any>(null);
+  const [editablePlaceName, setEditablePlaceName] = useState('');
+  const [selectedBaseType, setSelectedBaseType] = useState('cvs');
+  const [detectedCandidates, setDetectedCandidates] = useState<
+    Array<{ label: string; type: string }>
+  >([]);
 
   // Live Speech Recognition States
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [liveStreamText, setLiveStreamText] = useState('');
+  const [lastHeardQuestion, setLastHeardQuestion] = useState('');
   const [smartReplies, setSmartReplies] = useState<any[]>([]);
 
   const webRecRef = useRef<any>(null);
@@ -452,7 +462,10 @@ export const CounterConversationScreen: React.FC = () => {
 
         if (savedVenues) {
           const parsed = JSON.parse(savedVenues);
-          if (Array.isArray(parsed) && parsed.length > 0) setVenues(parsed);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setVenues(parsed);
+            setActiveVenue(parsed[0]);
+          }
         }
         if (savedCards) {
           const parsed = JSON.parse(savedCards);
@@ -473,6 +486,13 @@ export const CounterConversationScreen: React.FC = () => {
     };
     loadSavedData();
   }, []);
+
+  const showToast = (msg: string) => {
+    setSaveToastMsg(msg);
+    setTimeout(() => {
+      setSaveToastMsg('');
+    }, 3500);
+  };
 
   const persistFontScale = async (val: number) => {
     setFontScale(val);
@@ -507,6 +527,31 @@ export const CounterConversationScreen: React.FC = () => {
     } catch (e) {}
   };
 
+  // 🗑️ DELETE ANY SITUATION
+  const handleDeleteVenue = async (venueId: string) => {
+    if (venues.length <= 1) {
+      Alert.alert('無法刪除', '請至少保留一個場景 (Keep at least one situation).');
+      return;
+    }
+    const target = venues.find((v) => v.id === venueId);
+    const updated = venues.filter((v) => v.id !== venueId);
+    await persistVenues(updated);
+    if (activeVenue.id === venueId) {
+      setActiveVenue(updated[0]);
+    }
+    showToast(`已刪除場景「${target?.name?.['zh-TW'] || ''}」`);
+  };
+
+  // 🗑️ DELETE LEARNED / CUSTOM Q&A CARD
+  const handleDeleteCard = async (cardId: string) => {
+    const updated = cardsData.filter((c) => c.id !== cardId);
+    await persistCards(updated);
+    if (activePromptCard?.id === cardId) {
+      resetStageToIdle();
+    }
+    showToast('已刪除此問題與回答');
+  };
+
   const saveCustomWallpaper = async () => {
     if (!wallpaperInputUrl.trim()) return;
     const newUrl = wallpaperInputUrl.trim();
@@ -532,7 +577,7 @@ export const CounterConversationScreen: React.FC = () => {
 
   const speakSentence = (text: string, forcedLang?: string) => {
     if (!text) return;
-    const cleanText = text.replace(/^[💡🔊\s]+/, '').trim();
+    const cleanText = text.replace(/^[💡🔊✨\s]+/, '').trim();
     const hasChinese = /[\u4e00-\u9fa5]/.test(cleanText);
     const lang = forcedLang || (hasChinese ? 'zh-TW' : currentLang);
 
@@ -547,36 +592,100 @@ export const CounterConversationScreen: React.FC = () => {
     }
   };
 
+  // 🧠 SMART LEARNING ENGINE: Saves new questions & answers for future suggestion
   const learnNewConversationExchange = async (promptHeard: string, userReplyText: string) => {
-    if (!promptHeard || !userReplyText || promptHeard.length < 2) return;
-
-    const exists = cardsData.some((c) =>
-      c.keywords.some((k: string) => k.toLowerCase() === promptHeard.toLowerCase())
-    );
-    if (exists) return;
-
-    let enLabels = userReplyText;
-    if (currentLang === 'zh-TW') {
-      enLabels = await realTranslate(userReplyText, 'zh-TW', 'en-US');
+    const cleanQ = (promptHeard || '').replace(/\.\.\.$/, '').trim();
+    const cleanA = (userReplyText || '').trim();
+    if (!cleanQ || !cleanA || cleanQ.length < 2) return;
+    if (
+      cleanQ.includes('請開始說話') ||
+      cleanQ.includes('Listening') ||
+      cleanQ === cleanA
+    ) {
+      return;
     }
 
+    let enAnswer = cleanA;
+    let enQuestion = cleanQ;
+    if (/[\u4e00-\u9fa5]/.test(cleanA)) {
+      enAnswer = await realTranslate(cleanA, 'zh-TW', 'en-US');
+    }
+    if (/[\u4e00-\u9fa5]/.test(cleanQ)) {
+      enQuestion = await realTranslate(cleanQ, 'zh-TW', 'en-US');
+    }
+
+    // Extract meaningful keywords (full phrase + segments) so future speech matches reliably
+    const cleanKeywords = [cleanQ.toLowerCase()];
+    const stripped = cleanQ.replace(/[？?！!，,。、\s]/g, '');
+    if (stripped.length >= 2 && !cleanKeywords.includes(stripped.toLowerCase())) {
+      cleanKeywords.push(stripped.toLowerCase());
+    }
+
+    // Check if this question already exists in this situation
+    const existingIndex = cardsData.findIndex(
+      (c) =>
+        (c.stores.includes(activeVenue.id) ||
+          (activeVenue.baseType && c.stores.includes(activeVenue.baseType)) ||
+          c.stores.includes('*')) &&
+        (c.question?.['zh-TW'] === cleanQ ||
+          c.keywords.some(
+            (k: string) =>
+              cleanQ.toLowerCase().includes(k.toLowerCase()) ||
+              k.toLowerCase().includes(cleanQ.toLowerCase())
+          ))
+    );
+
+    const newOption = {
+      labels: { 'zh-TW': cleanA, 'en-US': enAnswer || cleanA },
+      subLabels: { 'zh-TW': '✨ 已記憶回答', 'en-US': '✨ Saved reply' },
+      tts: cleanA,
+    };
+
+    if (existingIndex !== -1) {
+      const targetCard = { ...cardsData[existingIndex] };
+      const alreadyHasOption = targetCard.options.some(
+        (o: any) =>
+          o.labels['zh-TW'] === cleanA ||
+          o.labels['en-US']?.toLowerCase() === cleanA.toLowerCase()
+      );
+      if (!alreadyHasOption) {
+        targetCard.options = [newOption, ...targetCard.options];
+        if (!targetCard.stores.includes(activeVenue.id)) {
+          targetCard.stores = [activeVenue.id, ...targetCard.stores];
+        }
+        const updated = [...cardsData];
+        updated[existingIndex] = targetCard;
+        await persistCards(updated);
+        showToast(`✨ 已為「${cleanQ}」新增常選回答：「${cleanA}」`);
+      }
+      return;
+    }
+
+    // Brand new out-of-data Question + Answer Card saved to current situation
     const newCard = {
       id: `learned_${Date.now()}`,
-      stores: [activeVenue.id],
-      priority: 1,
-      question: { 'zh-TW': promptHeard, 'en-US': promptHeard },
-      keywords: [promptHeard.toLowerCase()],
-      options: [
-        {
-          labels: { 'zh-TW': userReplyText, 'en-US': enLabels },
-          subLabels: { 'zh-TW': '已儲存對話', 'en-US': 'Learned reply' },
-          tts: userReplyText,
-        },
-      ],
+      isCustom: true,
+      stores: [activeVenue.id, ...(activeVenue.baseType ? [activeVenue.baseType] : [])],
+      priority: 0, // Appears right at the top of the situation
+      question: { 'zh-TW': cleanQ, 'en-US': enQuestion || cleanQ },
+      keywords: cleanKeywords,
+      options: [newOption],
     };
 
     const updated = [newCard, ...cardsData];
-    persistCards(updated);
+    await persistCards(updated);
+    showToast(`✨ 已記憶新問題「${cleanQ}」→ 下次將自動建議「${cleanA}」`);
+  };
+
+  const handleManualSaveQA = async () => {
+    if (!newQuestionInput.trim() || !newAnswerInput.trim()) {
+      Alert.alert('請輸入完整內容', '請輸入店員的問題以及您的回答。');
+      return;
+    }
+    await learnNewConversationExchange(newQuestionInput.trim(), newAnswerInput.trim());
+    setNewQuestionInput('');
+    setNewAnswerInput('');
+    setIsAddQaOpen(false);
   };
 
   const processRecognizedText = async (rawText: string, isFinal: boolean) => {
@@ -584,7 +693,7 @@ export const CounterConversationScreen: React.FC = () => {
 
     let translated = '';
     if (isTranslateMode) {
-      setLiveStreamText(rawText + ' ...');
+      setLiveStreamText(rawText + (isFinal ? '' : ' ...'));
       if (isFinal) {
         const targetLang = currentLang;
         const sourceLang = currentLang === 'en-US' ? 'zh-TW' : 'en-US';
@@ -593,6 +702,14 @@ export const CounterConversationScreen: React.FC = () => {
       }
     } else {
       setLiveStreamText(rawText);
+    }
+
+    if (
+      !rawText.includes('請開始說話') &&
+      !rawText.includes('Listening') &&
+      rawText.trim().length >= 2
+    ) {
+      setLastHeardQuestion(rawText.trim());
     }
 
     const lowerRaw = rawText.toLowerCase();
@@ -613,6 +730,7 @@ export const CounterConversationScreen: React.FC = () => {
         card.keywords.some(
           (kw: string) =>
             lowerRaw.includes(kw.toLowerCase()) ||
+            kw.toLowerCase().includes(lowerRaw) ||
             (translated && lowerTrans.includes(kw.toLowerCase()))
         )
       ) {
@@ -633,6 +751,7 @@ export const CounterConversationScreen: React.FC = () => {
       openCardStage(matchedCard);
     }
 
+    // If out-of-data question, fetch Gemini suggestions AND allow user to save their choice
     if (triggeredReplies.length === 0 && isFinal && rawText.length > 1) {
       const dynamicAiReplies = await fetchGeminiDynamicReplies(
         rawText,
@@ -717,7 +836,7 @@ export const CounterConversationScreen: React.FC = () => {
       subResult?.remove?.();
       subError?.remove?.();
     };
-  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id]);
+  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id, cardsData]);
 
   // 🌐 WEB SPEECH RECOGNITION
   useEffect(() => {
@@ -755,7 +874,7 @@ export const CounterConversationScreen: React.FC = () => {
         } catch (e) {}
       }
     }
-  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id]);
+  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id, cardsData]);
 
   const toggleLiveListening = async () => {
     const nextState = !isLiveActive;
@@ -812,7 +931,7 @@ export const CounterConversationScreen: React.FC = () => {
     }
   };
 
-  // 🎯 STAGE & CLERK DISPLAY HANDLERS (Matches Images 2 & 3)
+  // 🎯 STAGE & CLERK DISPLAY HANDLERS
   const openCardStage = (card: any) => {
     const qText = card.question?.[currentLang] || card.question?.['zh-TW'] || '';
     setPendingAmount(null);
@@ -874,13 +993,16 @@ export const CounterConversationScreen: React.FC = () => {
     speakSentence(displayToClerk, 'zh-TW');
     setSmartReplies([]);
 
+    // Automatically learn if clerk asked an out-of-data question on mic
+    const questionContext = lastHeardQuestion || liveStreamText;
     if (
-      liveStreamText &&
-      liveStreamText.length > 2 &&
-      !liveStreamText.includes('請開始說話') &&
-      !liveStreamText.includes('Listening')
+      questionContext &&
+      questionContext.length >= 2 &&
+      !questionContext.includes('請開始說話') &&
+      !questionContext.includes('Listening')
     ) {
-      learnNewConversationExchange(liveStreamText, displayToClerk);
+      learnNewConversationExchange(questionContext, displayToClerk);
+      setLastHeardQuestion('');
     }
   };
 
@@ -904,55 +1026,96 @@ export const CounterConversationScreen: React.FC = () => {
     });
   };
 
-  // 🛰️ ACCURATE OUTDOOR & INDOOR GPS RESOLVER (Fixes false "元智大學" outdoor bug)
+  const inferCategoryType = (nameStr: string, osmAmenity: string = '') => {
+    if (
+      osmAmenity === 'convenience' ||
+      osmAmenity === 'supermarket' ||
+      /7-ELEVEN|7-11|全家|FamilyMart|萊爾富|OK超商|全聯|家樂福|美廉社/i.test(nameStr)
+    ) {
+      return 'cvs';
+    }
+    if (
+      osmAmenity === 'cafe' ||
+      osmAmenity === 'beverages' ||
+      /星巴克|路易莎|Louisa|咖啡|茶|50嵐|迷客夏|清心|得正|可不可|麻古|鶴茶樓|再睡5分鐘|CoCo|一沐日|龜記/i.test(nameStr)
+    ) {
+      return 'drink';
+    }
+    if (/早餐|美而美|麥味登|拉亞|早安|永和豆漿|弘爺|瑞麟|早午餐/i.test(nameStr)) {
+      return 'breakfast';
+    }
+    if (
+      osmAmenity === 'pharmacy' ||
+      osmAmenity === 'hospital' ||
+      osmAmenity === 'clinic' ||
+      osmAmenity === 'dentist' ||
+      /藥局|診所|牙醫|醫院|屈臣氏|康是美|大樹藥局|丁丁/i.test(nameStr)
+    ) {
+      return 'pharmacy';
+    }
+    if (
+      osmAmenity === 'restaurant' ||
+      osmAmenity === 'fast_food' ||
+      /便當|自助餐|食堂|餐廳|小吃|麵|火鍋|八方雲集|四海遊龍|麥當勞|肯德基|摩斯/i.test(nameStr)
+    ) {
+      return 'buffet';
+    }
+    return 'other';
+  };
+
+  // 🛰️ FRESH REAL-TIME GPS + CANDIDATE STORE PICKER + EDITABLE STREET ADDRESS
   const scanLiveLocation = async () => {
     setIsAutoDetecting(true);
     setNearbyVenueFound(null);
-    if (autoDetectTimerRef.current) clearTimeout(autoDetectTimerRef.current);
+    setDetectedCandidates([]);
 
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('需要定位權限', '請允許定位權限以自動偵測所在商店或地點。');
-        setIsAutoDetecting(false);
-        return;
-      }
+      let coords: { latitude: number; longitude: number } | null = null;
 
-      // 1. Try High Accuracy first (for accurate outdoor street/store detection), fallback to Balanced
-      let loc: any = null;
-      try {
-        loc = await Promise.race([
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('HIGH_TIMEOUT')), 4500)),
+      // 1. Force a FRESH (maximumAge: 0) high-accuracy GPS reading so it never uses stale cached coordinates
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+        coords = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) =>
+              resolve({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              }),
+            (err) => reject(err),
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 }
+          );
+        });
+      } else {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('需要定位權限', '請允許定位權限以偵測目前位置或街道地址。');
+          setIsAutoDetecting(false);
+          return;
+        }
+        const loc: any = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.BestForNavigation,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('GPS_TIMEOUT')), 7000)),
         ]);
-      } catch (e) {
-        try {
-          loc = await Promise.race([
-            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('BAL_TIMEOUT')), 4000)),
-          ]);
-        } catch (err2) {
-          loc = await Location.getLastKnownPositionAsync();
+        if (loc?.coords) {
+          coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
         }
       }
 
-      if (!loc || !loc.coords) {
-        Alert.alert('定位逾時', '無法取得目前 GPS 座標，請確認已開啟定位服務。');
-        setIsAutoDetecting(false);
-        return;
+      if (!coords) {
+        throw new Error('NO_COORDS');
       }
 
-      const { latitude, longitude } = loc.coords;
+      const { latitude, longitude } = coords;
+      const candidates: Array<{ label: string; type: string }> = [];
 
-      let detectedZh = '';
-      let detectedEn = '';
-      let detectedType = 'other';
-
-      // 2. Query Overpass OSM for nearest actual store/building within 80m sorted by distance
+      // 2. Fetch Nearby Shops/POIs within 55m sorted strictly by closest distance (excluding giant landuse/university polygons)
       try {
         const query = `[out:json][timeout:6];(
-          node(around:80,${latitude},${longitude})["name"];
-          way(around:80,${latitude},${longitude})["name"];
+          node(around:55,${latitude},${longitude})["name"];
+          way(around:40,${latitude},${longitude})["shop"]["name"];
+          way(around:40,${latitude},${longitude})["amenity"]["name"];
         );out tags center;`;
 
         const res = await fetch(
@@ -961,161 +1124,164 @@ export const CounterConversationScreen: React.FC = () => {
         const data = await res.json();
 
         if (data?.elements?.length > 0) {
-          // Sort elements by closest distance to user's actual coordinates
-          const withDist = data.elements
+          const sorted = data.elements
+            .filter(
+              (el: any) =>
+                el.tags?.name &&
+                el.tags?.amenity !== 'university' &&
+                el.tags?.building !== 'university'
+            )
             .map((el: any) => {
               const elLat = el.lat ?? el.center?.lat ?? latitude;
               const elLon = el.lon ?? el.center?.lon ?? longitude;
               const dist = Math.hypot(elLat - latitude, elLon - longitude);
-              return { ...el, dist };
+              const nameZh =
+                el.tags['name:zh'] ||
+                el.tags['brand:zh'] ||
+                el.tags.name ||
+                el.tags.brand ||
+                '';
+              const branch = el.tags.branch ? ` (${el.tags.branch})` : '';
+              const fullLabel = `${nameZh}${branch}`.trim();
+              const cat = inferCategoryType(
+                fullLabel,
+                el.tags.amenity || el.tags.shop || ''
+              );
+              return { label: fullLabel, type: cat, dist };
             })
             .sort((a: any, b: any) => a.dist - b.dist);
 
-          // Prefer commercial shops/amenities over broad campus polygons when outdoors
-          const shopMatch =
-            withDist.find(
-              (el: any) => el.tags?.shop || el.tags?.amenity || el.tags?.brand
-            ) || withDist[0];
-
-          detectedZh = shopMatch.tags['name:zh'] || shopMatch.tags.name || '';
-          detectedEn = shopMatch.tags['name:en'] || shopMatch.tags['brand:en'] || '';
-
-          const type =
-            shopMatch.tags['amenity'] ||
-            shopMatch.tags['shop'] ||
-            shopMatch.tags['building'] ||
-            '';
-          if (
-            type === 'convenience' ||
-            type === 'supermarket' ||
-            /7-ELEVEN|全家|FamilyMart|萊爾富|OK超商|全聯/i.test(detectedZh)
-          ) {
-            detectedType = 'cvs';
-          } else if (
-            type === 'cafe' ||
-            type === 'beverages' ||
-            /星巴克|路易莎|咖啡|茶|50嵐|迷客夏|清心|得正|可不可|麻古/i.test(detectedZh)
-          ) {
-            detectedType = 'drink';
-          } else if (/早餐|美而美|麥味登|拉亞|早安|永和豆漿/i.test(detectedZh)) {
-            detectedType = 'breakfast';
-          } else if (
-            type === 'pharmacy' ||
-            type === 'hospital' ||
-            type === 'clinic' ||
-            /藥局|診所|醫院|屈臣氏|康是美/i.test(detectedZh)
-          ) {
-            detectedType = 'pharmacy';
-          } else if (
-            type === 'restaurant' ||
-            type === 'fast_food' ||
-            /便當|自助餐|食堂|餐廳|小吃/i.test(detectedZh)
-          ) {
-            detectedType = 'buffet';
-          } else if (type === 'hairdresser' || /美髮|髮廊|剪髮/i.test(detectedZh)) {
-            detectedType = 'salon';
-          } else if (type === 'university' || type === 'library' || type === 'school') {
-            detectedType = 'university';
-          }
+          sorted.forEach((item: any) => {
+            if (
+              item.label &&
+              !candidates.some((c) => c.label === item.label) &&
+              candidates.length < 5
+            ) {
+              candidates.push({ label: item.label, type: item.type });
+            }
+          });
         }
       } catch (osmErr) {
         console.warn('Overpass lookup warning:', osmErr);
       }
 
-      // 3. Fallback to OpenStreetMap Nominatim Reverse Geocoding (Works on both Web & Android)
-      if (!detectedZh) {
-        try {
-          const nomRes = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=zh-TW`,
-            { headers: { 'User-Agent': 'MochiVisibleDialogApp/1.0' } }
-          );
-          const nomData = await nomRes.json();
-          const addr = nomData?.address || {};
-          detectedZh =
-            nomData?.name ||
-            addr.shop ||
-            addr.amenity ||
-            [addr.suburb || addr.city_district || addr.town, addr.road, addr.house_number]
-              .filter(Boolean)
-              .join('') ||
-            '';
-        } catch (nomErr) {}
-      }
+      // 3. Always fetch exact Street Address (路名門牌) via OpenStreetMap Nominatim so user can see/edit address
+      let streetAddress = '';
+      try {
+        const nomRes = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=zh-TW`,
+          { headers: { 'User-Agent': 'MochiVisibleDialogApp/2.0' } }
+        );
+        const nomData = await nomRes.json();
+        const addr = nomData?.address || {};
+        const poiName = nomData?.name || addr.shop || addr.amenity || '';
+        const district = addr.suburb || addr.city_district || addr.town || addr.County || '';
+        const road = addr.road || addr.pedestrian || addr.neighbourhood || '';
+        const houseNo = addr.house_number ? `${addr.house_number}號` : '';
 
-      // 4. Native OS Geocode fallback if still empty
-      if (!detectedZh && Platform.OS !== 'web') {
+        streetAddress = [district, road, houseNo].filter(Boolean).join('');
+
+        if (poiName && !candidates.some((c) => c.label === poiName)) {
+          candidates.unshift({
+            label: poiName,
+            type: inferCategoryType(poiName),
+          });
+        }
+        if (streetAddress && !candidates.some((c) => c.label === streetAddress)) {
+          candidates.push({
+            label: streetAddress,
+            type: 'other',
+          });
+        }
+      } catch (nomErr) {}
+
+      // 4. Native OS Geocode Fallback
+      if (candidates.length === 0 && Platform.OS !== 'web') {
         try {
           const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
           if (rev && rev.length > 0) {
             const a = rev[0];
-            detectedZh =
-              [a.district || a.city, a.street || a.name, a.streetNumber]
-                .filter(Boolean)
-                .join('') || '';
+            const nativeAddr = [a.district || a.city, a.street || a.name, a.streetNumber]
+              .filter(Boolean)
+              .join('');
+            if (nativeAddr) {
+              candidates.push({ label: nativeAddr, type: 'other' });
+            }
           }
         } catch (e) {}
       }
 
-      if (!detectedZh) {
-        detectedZh = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      if (candidates.length === 0) {
+        candidates.push({
+          label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+          type: 'other',
+        });
       }
 
-      if (!detectedEn && detectedZh) {
-        detectedEn = await realTranslate(detectedZh, 'zh-TW', 'en-US');
-      }
-
-      const baseStore =
-        venues.find((s) => s.id === detectedType) ||
-        DEFAULT_STORES_DATA.find((s) => s.id === detectedType) ||
-        DEFAULT_STORES_DATA[7];
-
-      const newDynamicVenue = {
-        id: `loc_${Date.now()}`,
-        baseType: detectedType,
-        name: {
-          'zh-TW': detectedZh,
-          'en-US': detectedEn || detectedZh,
-        },
-        short: {
-          'zh-TW': detectedZh.substring(0, 10),
-          'en-US': (detectedEn || detectedZh).substring(0, 14),
-        },
-        emoji: baseStore.emoji || '📍',
-        coverImage: baseStore.coverImage,
-      };
-
-      setNearbyVenueFound(newDynamicVenue);
-      setActiveVenue(newDynamicVenue);
-
-      autoDetectTimerRef.current = setTimeout(() => {
-        setNearbyVenueFound(null);
-      }, 15000);
+      const primary = candidates[0];
+      setDetectedCandidates(candidates);
+      setEditablePlaceName(primary.label);
+      setSelectedBaseType(primary.type);
+      setNearbyVenueFound({
+        coords: { latitude, longitude },
+        streetAddress: streetAddress || primary.label,
+      });
     } catch (e) {
       console.error('GPS Detection Error:', e);
-      Alert.alert('定位失敗', '無法取得目前座標，請確認網路與定位服務正常。');
+      // Even if GPS fails or is denied, open the editable panel so the user can type their preferred place name!
+      setDetectedCandidates([]);
+      setEditablePlaceName('');
+      setSelectedBaseType('other');
+      setNearbyVenueFound({ manualOnly: true });
     } finally {
       setIsAutoDetecting(false);
     }
   };
 
-  const handleAddLocationAsSituation = async (venueToAdd: any) => {
-    if (!venueToAdd) return;
-    if (autoDetectTimerRef.current) clearTimeout(autoDetectTimerRef.current);
-
-    const exists = venues.some((v) => v.name['zh-TW'] === venueToAdd.name['zh-TW']);
-    let updatedVenues = [...venues];
-
-    if (!exists) {
-      updatedVenues = [venueToAdd, ...venues];
-      await persistVenues(updatedVenues);
+  // 💾 SAVE EDITED LOCATION NAME AS SITUATION
+  const handleSaveEditedLocationAsSituation = async () => {
+    const finalNameZh = editablePlaceName.trim();
+    if (!finalNameZh) {
+      Alert.alert('請輸入名稱', '請輸入店名或地點名稱後再加入場景。');
+      return;
     }
 
-    setActiveVenue(venueToAdd);
+    let finalNameEn = finalNameZh;
+    if (/[\u4e00-\u9fa5]/.test(finalNameZh)) {
+      finalNameEn = await realTranslate(finalNameZh, 'zh-TW', 'en-US');
+    }
+
+    const template =
+      VENUE_TEMPLATES.find((t) => t.id === selectedBaseType) || VENUE_TEMPLATES[5];
+
+    const newDynamicVenue = {
+      id: `loc_${Date.now()}`,
+      baseType: selectedBaseType,
+      isCustom: true,
+      name: {
+        'zh-TW': finalNameZh,
+        'en-US': finalNameEn || finalNameZh,
+      },
+      short: {
+        'zh-TW': finalNameZh.substring(0, 10),
+        'en-US': (finalNameEn || finalNameZh).substring(0, 14),
+      },
+      emoji: template.emoji,
+      coverImage: template.coverImage,
+    };
+
+    const existingIdx = venues.findIndex((v) => v.name['zh-TW'] === finalNameZh);
+    let updatedVenues = [...venues];
+    if (existingIdx !== -1) {
+      updatedVenues[existingIdx] = newDynamicVenue;
+    } else {
+      updatedVenues = [newDynamicVenue, ...venues];
+    }
+
+    await persistVenues(updatedVenues);
+    setActiveVenue(newDynamicVenue);
     setNearbyVenueFound(null);
-    Alert.alert(
-      '已加入場景 (Added)',
-      `${venueToAdd.name[currentLang] || venueToAdd.name['zh-TW']} 已儲存至場景選單。`
-    );
+    showToast(`✓ 已儲存並切換至「${finalNameZh}」`);
   };
 
   const handleTypeToClerkSubmit = async () => {
@@ -1132,12 +1298,19 @@ export const CounterConversationScreen: React.FC = () => {
       setClerkSub(currentLang === 'zh-TW' ? '請直接對手機說話，或點選問題' : 'Please speak or tap a question');
       speakSentence(finalSpeech, speechLang);
 
+      // Automatically save out-of-data Question + Typed Answer for future suggestions!
+      const questionToBind =
+        lastHeardQuestion ||
+        (activePromptCard ? activePromptCard.question?.['zh-TW'] : '') ||
+        liveStreamText;
       if (
-        liveStreamText &&
-        liveStreamText.length > 2 &&
-        !liveStreamText.includes('請開始說話')
+        questionToBind &&
+        questionToBind.length >= 2 &&
+        !questionToBind.includes('請開始說話') &&
+        !questionToBind.includes('Listening')
       ) {
-        learnNewConversationExchange(liveStreamText, finalSpeech);
+        await learnNewConversationExchange(questionToBind, finalSpeech);
+        setLastHeardQuestion('');
       }
 
       setCustomTypeInput('');
@@ -1152,7 +1325,7 @@ export const CounterConversationScreen: React.FC = () => {
         (activeVenue.baseType && c.stores.includes(activeVenue.baseType)) ||
         c.stores.includes('*')
     );
-    return valid.sort((a, b) => (a.priority || 2) - (b.priority || 2));
+    return valid.sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2));
   };
 
   // Dynamic font size helper
@@ -1179,11 +1352,17 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
 
           <View style={styles.topRightControls}>
-            <TouchableOpacity onPress={scanLiveLocation} style={styles.iconBtn}>
+            <TouchableOpacity
+              onPress={scanLiveLocation}
+              style={[
+                styles.iconBtn,
+                nearbyVenueFound && { borderColor: THEME.success },
+              ]}
+            >
               {isAutoDetecting ? (
                 <ActivityIndicator size="small" color={THEME.orange} />
               ) : (
-                <Text style={[styles.iconText, { fontSize: fs(18) }]}>🛰️</Text>
+                <Text style={[styles.iconText, { fontSize: fs(17) }]}>🛰️ 定位</Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -1212,34 +1391,35 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* 🛰️ SATELLITE DETECTED VENUE PILL */}
+        {/* ✨ TOAST NOTIFICATION */}
+        {!!saveToastMsg && (
+          <View style={styles.toastBanner}>
+            <Text style={[styles.toastBannerText, { fontSize: fs(14) }]}>
+              {saveToastMsg}
+            </Text>
+          </View>
+        )}
+
+        {/* 🛰️ EDITABLE GPS LOCATION & CUSTOM SITUATION CREATOR CARD */}
         {nearbyVenueFound && (
           <View style={styles.satelliteDropdownContainer}>
-            <View style={styles.satelliteResultCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                <View style={styles.nearbyPulseDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.satelliteFoundLabel, { fontSize: fs(12) }]}>
-                    {currentLang === 'zh-TW' ? '目前定位地點' : 'Detected Location'}
-                  </Text>
-                  <Text
-                    style={[styles.satelliteFoundName, { fontSize: fs(15) }]}
-                    numberOfLines={1}
-                  >
-                    {nearbyVenueFound.name[currentLang] || nearbyVenueFound.name['zh-TW']}
+            <View style={styles.satelliteEditorCard}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 8,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={styles.nearbyPulseDot} />
+                  <Text style={[styles.satelliteFoundLabel, { fontSize: fs(13) }]}>
+                    {currentLang === 'zh-TW'
+                      ? '目前定位 / 可自由修改名稱後加入場景：'
+                      : 'Detected Location (Edit name before saving):'}
                   </Text>
                 </View>
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                <TouchableOpacity
-                  style={styles.addSituationPillBtn}
-                  onPress={() => handleAddLocationAsSituation(nearbyVenueFound)}
-                >
-                  <Text style={[styles.addSituationPillText, { fontSize: fs(13) }]}>
-                    {currentLang === 'zh-TW' ? '＋ 加為場景' : '＋ Add'}
-                  </Text>
-                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.dismissPillBtn}
                   onPress={() => setNearbyVenueFound(null)}
@@ -1247,6 +1427,110 @@ export const CounterConversationScreen: React.FC = () => {
                   <Text style={{ color: THEME.textMuted, fontSize: fs(16) }}>✕</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Clickable Nearby Store & Street Address Candidates */}
+              {detectedCandidates.length > 1 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginBottom: 8 }}
+                  contentContainerStyle={{ gap: 6 }}
+                >
+                  {detectedCandidates.map((cand, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[
+                        styles.candidateChip,
+                        editablePlaceName === cand.label && styles.candidateChipActive,
+                      ]}
+                      onPress={() => {
+                        setEditablePlaceName(cand.label);
+                        setSelectedBaseType(cand.type);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.candidateChipText,
+                          { fontSize: fs(13) },
+                          editablePlaceName === cand.label && {
+                            color: '#000',
+                            fontWeight: '800',
+                          },
+                        ]}
+                      >
+                        📍 {cand.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Editable Place Name Input (User can rename street address to preferred name) */}
+              <TextInput
+                style={[styles.editableLocationInput, { fontSize: fs(16) }]}
+                value={editablePlaceName}
+                onChangeText={setEditablePlaceName}
+                placeholder={
+                  currentLang === 'zh-TW'
+                    ? '輸入自訂地點或店名 (例如：7-11 中壢店)...'
+                    : 'Enter preferred place name...'
+                }
+                placeholderTextColor={THEME.textMuted}
+              />
+
+              {/* Category Template Picker */}
+              <Text
+                style={{
+                  color: THEME.textMuted,
+                  fontSize: fs(12),
+                  marginBottom: 6,
+                }}
+              >
+                {currentLang === 'zh-TW'
+                  ? '選擇問題模板類型：'
+                  : 'Select question template type:'}
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 10 }}
+                contentContainerStyle={{ gap: 6 }}
+              >
+                {VENUE_TEMPLATES.map((tpl) => (
+                  <TouchableOpacity
+                    key={tpl.id}
+                    style={[
+                      styles.templateTypeChip,
+                      selectedBaseType === tpl.id && styles.templateTypeChipActive,
+                    ]}
+                    onPress={() => setSelectedBaseType(tpl.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.templateTypeChipText,
+                        { fontSize: fs(13) },
+                        selectedBaseType === tpl.id && {
+                          color: '#000',
+                          fontWeight: '800',
+                        },
+                      ]}
+                    >
+                      {tpl.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.saveLocationConfirmBtn}
+                onPress={handleSaveEditedLocationAsSituation}
+              >
+                <Text style={[styles.saveLocationConfirmBtnText, { fontSize: fs(15) }]}>
+                  {currentLang === 'zh-TW'
+                    ? '＋ 儲存名稱並設為目前場景'
+                    : '＋ Save & Set as Active Situation'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -1257,10 +1541,10 @@ export const CounterConversationScreen: React.FC = () => {
           contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View style={styles.greetingSection}>
-            <Text style={[styles.greetingTitle, { fontSize: fs(30) }]}>
+            <Text style={[styles.greetingTitle, { fontSize: fs(28) }]}>
               {currentLang === 'zh-TW' ? '準備好開始對話' : 'Ready to Communicate'}
             </Text>
-            <Text style={[styles.greetingSub, { fontSize: fs(16) }]}>
+            <Text style={[styles.greetingSub, { fontSize: fs(15) }]}>
               {currentLang === 'zh-TW'
                 ? '選擇當前場景，快速雙向溝通：'
                 : 'Select a situation for instant two-way dialog:'}
@@ -1270,9 +1554,30 @@ export const CounterConversationScreen: React.FC = () => {
           <View style={styles.heroCard}>
             <Image source={{ uri: getActiveCoverImage() }} style={styles.heroImageCentered} />
             <View style={styles.heroContent}>
-              <Text style={[styles.heroTitle, { fontSize: fs(24) }]}>
-                {activeVenue.name[currentLang] || activeVenue.name['zh-TW']}
-              </Text>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                }}
+              >
+                <Text style={[styles.heroTitle, { fontSize: fs(22), flex: 1 }]}>
+                  {activeVenue.emoji}{' '}
+                  {activeVenue.name[currentLang] || activeVenue.name['zh-TW']}
+                </Text>
+                {venues.length > 1 && (
+                  <TouchableOpacity
+                    style={styles.deleteHeroVenueBtn}
+                    onPress={() => handleDeleteVenue(activeVenue.id)}
+                  >
+                    <Text style={{ color: THEME.danger, fontSize: fs(13), fontWeight: '700' }}>
+                      🗑️ {currentLang === 'zh-TW' ? '刪除此場景' : 'Delete'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
               <TouchableOpacity
                 style={styles.startModeBtn}
                 onPress={() => {
@@ -1292,45 +1597,84 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           </View>
 
+          {/* All Situations Carousel with Delete Badge & Add Custom Button */}
           <View style={styles.carouselSection}>
-            <Text style={[styles.carouselTitle, { fontSize: fs(17) }]}>
-              {currentLang === 'zh-TW' ? '切換所有場景' : 'All Situations'}
-            </Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingRight: 16,
+                marginBottom: 12,
+              }}
+            >
+              <Text style={[styles.carouselTitle, { fontSize: fs(17), marginBottom: 0 }]}>
+                {currentLang === 'zh-TW' ? '切換或管理場景' : 'All Situations'}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setDetectedCandidates([]);
+                  setEditablePlaceName('');
+                  setSelectedBaseType('other');
+                  setNearbyVenueFound({ manualOnly: true });
+                }}
+              >
+                <Text style={{ color: THEME.orange, fontSize: fs(14), fontWeight: '700' }}>
+                  ＋ {currentLang === 'zh-TW' ? '新增自訂場景' : 'Add Situation'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.carouselScroll}
             >
               {venues.map((v) => (
-                <TouchableOpacity
-                  key={v.id}
-                  style={styles.carouselItem}
-                  onPress={() => setActiveVenue(v)}
-                >
-                  <Image
-                    source={{ uri: customWallpapers[v.id] || v.coverImage }}
-                    style={[
-                      styles.carouselItemImg,
-                      activeVenue.id === v.id && styles.carouselItemImgActive,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.carouselItemText,
-                      { fontSize: fs(13) },
-                      activeVenue.id === v.id && { color: THEME.orange, fontWeight: 'bold' },
-                    ]}
-                    numberOfLines={1}
+                <View key={v.id} style={styles.carouselItemWrap}>
+                  <TouchableOpacity
+                    style={styles.carouselItem}
+                    onPress={() => setActiveVenue(v)}
                   >
-                    {getVenueShortName(v)}
-                  </Text>
-                </TouchableOpacity>
+                    <Image
+                      source={{ uri: customWallpapers[v.id] || v.coverImage }}
+                      style={[
+                        styles.carouselItemImg,
+                        activeVenue.id === v.id && styles.carouselItemImgActive,
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.carouselItemText,
+                        { fontSize: fs(13) },
+                        activeVenue.id === v.id && {
+                          color: THEME.orange,
+                          fontWeight: 'bold',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {getVenueShortName(v)}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Delete Situation X Badge */}
+                  {venues.length > 1 && (
+                    <TouchableOpacity
+                      style={styles.carouselDeleteBadge}
+                      onPress={() => handleDeleteVenue(v.id)}
+                      accessibilityLabel={`刪除 ${getVenueShortName(v)}`}
+                    >
+                      <Text style={styles.carouselDeleteBadgeText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               ))}
             </ScrollView>
           </View>
         </ScrollView>
 
-        {/* Modal: Flexible Settings */}
+        {/* Modal: Flexible Settings + Manage Situations */}
         <Modal visible={isSettingsOpen} transparent animationType="fade">
           <View style={styles.modalBackdrop}>
             <ScrollView
@@ -1343,7 +1687,7 @@ export const CounterConversationScreen: React.FC = () => {
                   <Text style={{ color: THEME.text, fontSize: fs(26) }}>←</Text>
                 </TouchableOpacity>
                 <Text style={[styles.settingsModalTitle, { fontSize: fs(22) }]}>
-                  {currentLang === 'zh-TW' ? '彈性顯示與字體設定' : 'Display & Font Settings'}
+                  {currentLang === 'zh-TW' ? '設定與場景管理' : 'Settings & Situations'}
                 </Text>
                 <View style={{ width: 24 }} />
               </View>
@@ -1352,11 +1696,6 @@ export const CounterConversationScreen: React.FC = () => {
                 {currentLang === 'zh-TW'
                   ? '字體與按鈕大小 (全畫面即時縮放)'
                   : 'Font & UI Scale (Global)'}
-              </Text>
-              <Text style={[styles.settingHint, { fontSize: fs(14) }]}>
-                {currentLang === 'zh-TW'
-                  ? '依照您的視力與使用習慣自由調整，所有問題、建議按鈕與店員畫面皆會同步放大或縮小：'
-                  : 'Adjust text and button sizes across all screens according to your preference:'}
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
                 {FONT_SCALE_OPTIONS.map((f) => (
@@ -1384,22 +1723,33 @@ export const CounterConversationScreen: React.FC = () => {
                 ))}
               </View>
 
-              {/* Live Font Preview Box */}
-              <View style={styles.fontPreviewBox}>
-                <Text style={{ color: THEME.textMuted, fontSize: fs(13), marginBottom: 4 }}>
-                  {currentLang === 'zh-TW' ? '字體大小預覽：' : 'Preview:'}
-                </Text>
-                <Text style={{ color: THEME.text, fontSize: fs(20), fontWeight: '700' }}>
-                  {currentLang === 'zh-TW'
-                    ? '發票要印嗎？ / 有載具嗎？'
-                    : 'Print the receipt? / Carrier barcode?'}
-                </Text>
-              </View>
+              <View style={styles.settingsDivider} />
+
+              <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
+                {currentLang === 'zh-TW' ? '管理所有場景 (可刪除)' : 'Manage Situations'}
+              </Text>
+              {venues.map((v) => (
+                <View key={v.id} style={styles.manageVenueRow}>
+                  <Text style={{ color: THEME.text, fontSize: fs(16), flex: 1 }}>
+                    {v.emoji} {v.name[currentLang] || v.name['zh-TW']}
+                  </Text>
+                  {venues.length > 1 && (
+                    <TouchableOpacity
+                      style={styles.manageVenueDeleteBtn}
+                      onPress={() => handleDeleteVenue(v.id)}
+                    >
+                      <Text style={{ color: THEME.danger, fontSize: fs(14), fontWeight: '700' }}>
+                        🗑️ 刪除
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
 
               <View style={styles.settingsDivider} />
 
               <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
-                {currentLang === 'zh-TW' ? '翻譯設定' : 'Translation'}
+                {currentLang === 'zh-TW' ? '翻譯與語言' : 'Translation & Language'}
               </Text>
               <View style={styles.settingRow}>
                 <Text style={[styles.settingRowLabel, { fontSize: fs(16) }]}>
@@ -1415,11 +1765,6 @@ export const CounterConversationScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.settingsDivider} />
-
-              <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
-                {currentLang === 'zh-TW' ? '介面語言' : 'Interface Language'}
-              </Text>
               {LANGUAGE_LIST.map((lang) => (
                 <TouchableOpacity
                   key={lang.code}
@@ -1427,9 +1772,7 @@ export const CounterConversationScreen: React.FC = () => {
                     styles.langOptionItem,
                     currentLang === lang.code && { backgroundColor: THEME.surfaceLight },
                   ]}
-                  onPress={() => {
-                    setCurrentLang(lang.code as SupportedLang);
-                  }}
+                  onPress={() => setCurrentLang(lang.code as SupportedLang)}
                 >
                   <Text
                     style={[
@@ -1452,11 +1795,6 @@ export const CounterConversationScreen: React.FC = () => {
 
               <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
                 {currentLang === 'zh-TW' ? '自訂場景圖片 (Wallpaper)' : 'Custom Wallpaper URL'}
-              </Text>
-              <Text style={[styles.settingHint, { fontSize: fs(13) }]}>
-                {currentLang === 'zh-TW'
-                  ? `貼上圖片網址以更改「${activeVenue.name['zh-TW']}」的封面`
-                  : `Paste image URL for ${activeVenue.name['en-US']}`}
               </Text>
               <TextInput
                 style={[styles.inputField, { marginBottom: 8, fontSize: fs(15) }]}
@@ -1489,7 +1827,6 @@ export const CounterConversationScreen: React.FC = () => {
       {/* 🟠 TOP HALF: Clerk-Facing 180° Rotated Display */}
       <View style={[styles.splitTop, { paddingTop: Math.max(insets.top, 10) }]}>
         <View style={styles.splitTopInner}>
-          {/* Top Bar inside 180° Clerk View: Offline Clerk Pick Button (Green Box in Image 1) + Speaker */}
           <View style={styles.clerkTopActionRow}>
             <TouchableOpacity
               style={styles.clerkOfflinePickPill}
@@ -1524,7 +1861,6 @@ export const CounterConversationScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Main 180° Clerk Message Area */}
           <View style={styles.clerkMainMessageContainer}>
             {clerkMessage ? (
               <>
@@ -1590,7 +1926,6 @@ export const CounterConversationScreen: React.FC = () => {
       {/* ⚫ BOTTOM HALF: User-Facing Control Panel */}
       <View style={[styles.splitBottom, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <View style={styles.bottomHeaderGroup}>
-          {/* Header Row: Venue Switcher, Offline Clerk Pick Trigger, Mic Listen Toggle, Font/Settings */}
           <View style={styles.bottomHeader}>
             <TouchableOpacity
               style={styles.venueDropdown}
@@ -1602,7 +1937,6 @@ export const CounterConversationScreen: React.FC = () => {
             </TouchableOpacity>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {/* Offline Clerk Pick Trigger from User Side as well */}
               <TouchableOpacity
                 style={styles.offlineModePill}
                 onPress={() => {
@@ -1641,6 +1975,15 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           </View>
 
+          {/* ✨ Toast inside Counter Mode when a new Question + Answer is learned */}
+          {!!saveToastMsg && (
+            <View style={[styles.toastBanner, { marginHorizontal: 0, marginBottom: 8 }]}>
+              <Text style={[styles.toastBannerText, { fontSize: fs(13) }]}>
+                {saveToastMsg}
+              </Text>
+            </View>
+          )}
+
           {/* 💡 1-Tap Triggered Suggestion Pills + Speaker Button */}
           {smartReplies.length > 0 && (
             <ScrollView
@@ -1674,24 +2017,34 @@ export const CounterConversationScreen: React.FC = () => {
             </ScrollView>
           )}
 
-          {/* 🎙️ LIVE SUBTITLE TRANSCRIBE BOX + SPEAKER ICON (Yellow Box in Image 1) */}
+          {/* 🎙️ LIVE SUBTITLE TRANSCRIBE BOX + SPEAKER + SAVE Q&A BUTTON */}
           {liveStreamText ? (
             <View style={styles.liveSubtitleBox}>
               <View style={{ flex: 1, paddingRight: 8 }}>
-                {isTranslateMode && (
-                  <Text
-                    style={{
-                      fontSize: fs(11),
-                      color: THEME.translateAccent,
-                      marginBottom: 2,
-                    }}
-                  >
-                    A/文 Translated
-                  </Text>
-                )}
                 <Text style={[styles.liveSubtitleText, { fontSize: fs(18) }]}>
                   "{liveStreamText}"
                 </Text>
+                {!liveStreamText.includes('請開始說話') &&
+                  !liveStreamText.includes('Listening') && (
+                    <TouchableOpacity
+                      style={{ marginTop: 6 }}
+                      onPress={() => {
+                        setNewQuestionInput(liveStreamText.replace(/\.\.\.$/, '').trim());
+                        setNewAnswerInput('');
+                        setIsAddQaOpen(true);
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: THEME.orange,
+                          fontSize: fs(13),
+                          fontWeight: '700',
+                        }}
+                      >
+                        ＋ 儲存這句問題與我的回答（下次自動建議）
+                      </Text>
+                    </TouchableOpacity>
+                  )}
               </View>
               <TouchableOpacity
                 style={styles.subtitleSpeakerBtn}
@@ -1705,13 +2058,12 @@ export const CounterConversationScreen: React.FC = () => {
           ) : null}
         </View>
 
-        {/* 📋 MAIN STAGE AREA: Shows Active Clerk Question Card (Image 2), Amount Confirmation, or Full Questions List */}
+        {/* 📋 MAIN STAGE AREA */}
         <ScrollView
           style={styles.questionsList}
           contentContainerStyle={{ paddingBottom: 80 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* CASE 1: Clerk entered an Amount on the 180° Keypad */}
           {pendingAmount !== null ? (
             <View style={styles.stageActiveCard}>
               <View style={styles.stageCardHeader}>
@@ -1744,13 +2096,7 @@ export const CounterConversationScreen: React.FC = () => {
                   style={[styles.amountConfirmBtn, { backgroundColor: THEME.text }]}
                   onPress={() => handleConfirmAmount(true)}
                 >
-                  <Text
-                    style={{
-                      color: THEME.bg,
-                      fontSize: fs(18),
-                      fontWeight: '800',
-                    }}
-                  >
+                  <Text style={{ color: THEME.bg, fontSize: fs(18), fontWeight: '800' }}>
                     ✓ {currentLang === 'zh-TW' ? '對，確認' : 'Confirm'}
                   </Text>
                 </TouchableOpacity>
@@ -1758,20 +2104,13 @@ export const CounterConversationScreen: React.FC = () => {
                   style={[styles.amountConfirmBtn, { backgroundColor: THEME.danger }]}
                   onPress={() => handleConfirmAmount(false)}
                 >
-                  <Text
-                    style={{
-                      color: '#FFF',
-                      fontSize: fs(18),
-                      fontWeight: '800',
-                    }}
-                  >
+                  <Text style={{ color: '#FFF', fontSize: fs(18), fontWeight: '800' }}>
                     ✕ {currentLang === 'zh-TW' ? '不對，重按' : 'Wrong'}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : activePromptCard ? (
-            /* CASE 2: Clerk Picked a Question or Voice Matched a Card (Matches Image 2 Red Box) */
             <View style={styles.stageActiveCard}>
               <View style={styles.stageCardHeader}>
                 <TouchableOpacity onPress={resetStageToIdle} style={styles.stageBackBtn}>
@@ -1791,7 +2130,6 @@ export const CounterConversationScreen: React.FC = () => {
                     )
                   }
                   style={styles.stageSpeakSmallBtn}
-                  accessibilityLabel="朗讀這個問題"
                 >
                   <Text style={{ fontSize: fs(18) }}>🔊</Text>
                 </TouchableOpacity>
@@ -1861,18 +2199,41 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           ) : null}
 
-          {/* All Prioritized Questions & Quick Answers List */}
-          <Text style={[styles.sectionListHeader, { fontSize: fs(14) }]}>
-            {currentLang === 'zh-TW'
-              ? '點選問題或直接回答店員（點 🔊 可發音）：'
-              : 'Tap a question or answer directly (Tap 🔊 to speak):'}
-          </Text>
+          {/* Header + Add New Custom Question/Answer Button */}
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 8,
+              marginTop: 4,
+            }}
+          >
+            <Text style={[styles.sectionListHeader, { fontSize: fs(14), marginBottom: 0 }]}>
+              {currentLang === 'zh-TW'
+                ? '點選問題或直接回答店員：'
+                : 'Tap a question or answer directly:'}
+            </Text>
+            <TouchableOpacity
+              style={styles.addCustomQaBtn}
+              onPress={() => {
+                setNewQuestionInput(lastHeardQuestion || '');
+                setNewAnswerInput('');
+                setIsAddQaOpen(true);
+              }}
+            >
+              <Text style={{ color: THEME.orange, fontSize: fs(13), fontWeight: '800' }}>
+                ＋ {currentLang === 'zh-TW' ? '新增問題與回答' : 'Add Q&A'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {prioritizedCards.map((card) => {
             const qTitle = card.question?.[currentLang] || card.question?.['zh-TW'];
+            const isLearnedCard =
+              card.isCustom || String(card.id).startsWith('learned_');
             return (
               <View key={card.id} style={styles.cardGroupBox}>
-                {/* Question Header Row with Speaker & Open Card Stage */}
                 {qTitle && (
                   <View style={styles.cardQuestionHeaderRow}>
                     <TouchableOpacity
@@ -1880,20 +2241,34 @@ export const CounterConversationScreen: React.FC = () => {
                       onPress={() => openCardStage(card)}
                     >
                       <Text style={[styles.cardQuestionHeaderText, { fontSize: fs(16) }]}>
+                        {isLearnedCard ? '✨ ' : ''}
                         {qTitle}
                       </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.rowSpeakerIconBtn}
-                      onPress={() => speakSentence(qTitle, 'zh-TW')}
-                      accessibilityLabel={`朗讀問題：${qTitle}`}
-                    >
-                      <Text style={{ fontSize: fs(16) }}>🔊</Text>
-                    </TouchableOpacity>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {isLearnedCard && (
+                        <TouchableOpacity
+                          style={styles.deleteCardSmallBtn}
+                          onPress={() => handleDeleteCard(card.id)}
+                          accessibilityLabel="刪除此自訂問題"
+                        >
+                          <Text style={{ color: THEME.danger, fontSize: fs(13), fontWeight: '700' }}>
+                            刪除
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={styles.rowSpeakerIconBtn}
+                        onPress={() => speakSentence(qTitle, 'zh-TW')}
+                        accessibilityLabel={`朗讀問題：${qTitle}`}
+                      >
+                        <Text style={{ fontSize: fs(16) }}>🔊</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
 
-                {/* Answer Options inside the Card */}
                 {card.options.map((opt: any, idx: number) => {
                   const mainLabel = opt.labels[currentLang] || opt.labels['zh-TW'];
                   const subLabel = opt.subLabels?.[currentLang] || opt.subLabels?.['zh-TW'];
@@ -1994,7 +2369,7 @@ export const CounterConversationScreen: React.FC = () => {
       </View>
 
       {/* ============================================================================ */}
-      {/* 🔄 MODAL: 180° ROTATED OFFLINE CLERK PICK & AMOUNT KEYPAD (Matches Image 3) */}
+      {/* 🔄 MODAL: 180° ROTATED OFFLINE CLERK PICK & AMOUNT KEYPAD */}
       {/* ============================================================================ */}
       <Modal
         visible={isClerkPickOpen}
@@ -2003,7 +2378,6 @@ export const CounterConversationScreen: React.FC = () => {
         onRequestClose={() => setIsClerkPickOpen(false)}
       >
         <View style={styles.clerkPickModalRoot}>
-          {/* Top Part: Rotated 180° so the Clerk standing across the counter reads it upright */}
           <View
             style={[
               styles.clerkPickRotatedArea,
@@ -2039,7 +2413,6 @@ export const CounterConversationScreen: React.FC = () => {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.clerkPickGrid}
               >
-                {/* Orange Outlined "輸入金額" Tile (First tile in Grid, matching Image 3) */}
                 <View style={styles.clerkPickCell}>
                   <TouchableOpacity
                     style={[styles.clerkPickTile, styles.clerkPickAmountTile]}
@@ -2057,7 +2430,6 @@ export const CounterConversationScreen: React.FC = () => {
                   </TouchableOpacity>
                 </View>
 
-                {/* All Situation & Checkout Questions for the Clerk to Tap */}
                 {prioritizedCards.map((card) => (
                   <View key={card.id} style={styles.clerkPickCell}>
                     <TouchableOpacity
@@ -2075,7 +2447,6 @@ export const CounterConversationScreen: React.FC = () => {
                 ))}
               </ScrollView>
             ) : (
-              /* 180° Custom Numeric Keypad for Clerk to Enter Price */
               <View style={styles.clerkKeypadContainer}>
                 <View style={styles.clerkKeypadDisplay}>
                   <Text style={[styles.clerkKeypadCurrency, { fontSize: fs(20) }]}>NT$</Text>
@@ -2139,7 +2510,6 @@ export const CounterConversationScreen: React.FC = () => {
             )}
           </View>
 
-          {/* Bottom Bar (Upright for the User): Cancel & Return */}
           <TouchableOpacity
             style={[
               styles.clerkPickUserCancelBar,
@@ -2158,22 +2528,21 @@ export const CounterConversationScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* Modal: Type to Clerk */}
+      {/* Modal: Type to Clerk (Automatically learns if answering a heard question) */}
       <Modal visible={isTypeToClerkOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.typeModalCard}>
-            <Text style={[styles.settingsModalTitle, { fontSize: fs(20), marginBottom: 12 }]}>
+            <Text style={[styles.settingsModalTitle, { fontSize: fs(20), marginBottom: 8 }]}>
               ✏️ {currentLang === 'zh-TW' ? '打字給對方看' : 'Type to Clerk'}
-              {isTranslateMode && currentLang === 'en-US' && (
-                <Text style={{ color: THEME.translateAccent, fontSize: fs(13) }}>
-                  {' '}
-                  (Auto-Translate)
-                </Text>
-              )}
             </Text>
+            {!!lastHeardQuestion && (
+              <Text style={{ color: THEME.orange, fontSize: fs(13), marginBottom: 8 }}>
+                ✨ 將自動記憶為「{lastHeardQuestion}」的常選回答
+              </Text>
+            )}
             <TextInput
               style={[styles.inputField, { fontSize: fs(17), minHeight: 80 }]}
-              placeholder={currentLang === 'zh-TW' ? '輸入文字或電話號碼...' : 'Type text...'}
+              placeholder={currentLang === 'zh-TW' ? '輸入回答文字或電話號碼...' : 'Type text...'}
               placeholderTextColor={THEME.textMuted}
               value={customTypeInput}
               onChangeText={setCustomTypeInput}
@@ -2182,7 +2551,7 @@ export const CounterConversationScreen: React.FC = () => {
             />
             <TouchableOpacity style={styles.sendBtn} onPress={handleTypeToClerkSubmit}>
               <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
-                🔊 {currentLang === 'zh-TW' ? '顯示並發音' : 'Show & Speak'}
+                🔊 {currentLang === 'zh-TW' ? '顯示、發音並記憶' : 'Show, Speak & Save'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -2197,7 +2566,59 @@ export const CounterConversationScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* Modal: Settings (Accessible directly from Counter Mode via "Aa" button) */}
+      {/* Modal: Manual Add New Question & Answer for Current Situation */}
+      <Modal visible={isAddQaOpen} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.typeModalCard}>
+            <Text style={[styles.settingsModalTitle, { fontSize: fs(20), marginBottom: 6 }]}>
+              ✨ {currentLang === 'zh-TW' ? '新增問題與回答' : 'Save New Question & Answer'}
+            </Text>
+            <Text style={{ color: THEME.textMuted, fontSize: fs(13), marginBottom: 12 }}>
+              {currentLang === 'zh-TW'
+                ? `儲存至「${activeVenue.name['zh-TW']}」，下次店員問起時會自動跳出建議：`
+                : 'Saved to this situation and suggested automatically next time:'}
+            </Text>
+
+            <Text style={{ color: THEME.text, fontSize: fs(14), marginBottom: 4, fontWeight: '700' }}>
+              {currentLang === 'zh-TW' ? '1. 店員問的問題 (關鍵句)：' : '1. Clerk Question:'}
+            </Text>
+            <TextInput
+              style={[styles.inputField, { fontSize: fs(16), minHeight: 48 }]}
+              placeholder={currentLang === 'zh-TW' ? '例如：要不要加辣？ / 刷條碼嗎？' : 'e.g. Spicy?'}
+              placeholderTextColor={THEME.textMuted}
+              value={newQuestionInput}
+              onChangeText={setNewQuestionInput}
+            />
+
+            <Text style={{ color: THEME.text, fontSize: fs(14), marginBottom: 4, fontWeight: '700' }}>
+              {currentLang === 'zh-TW' ? '2. 我的預設回答：' : '2. My Preferred Answer:'}
+            </Text>
+            <TextInput
+              style={[styles.inputField, { fontSize: fs(16), minHeight: 48 }]}
+              placeholder={currentLang === 'zh-TW' ? '例如：小辣，謝謝' : 'e.g. Mild spicy, thanks'}
+              placeholderTextColor={THEME.textMuted}
+              value={newAnswerInput}
+              onChangeText={setNewAnswerInput}
+            />
+
+            <TouchableOpacity style={styles.sendBtn} onPress={handleManualSaveQA}>
+              <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
+                💾 {currentLang === 'zh-TW' ? '儲存至本場景' : 'Save for Future'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.closeBtn, { marginTop: 8 }]}
+              onPress={() => setIsAddQaOpen(false)}
+            >
+              <Text style={[styles.closeBtnText, { fontSize: fs(15) }]}>
+                {currentLang === 'zh-TW' ? '取消' : 'Cancel'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: Quick Font Scaling in Counter Mode */}
       <Modal visible={isSettingsOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.typeModalCard}>
@@ -2229,10 +2650,7 @@ export const CounterConversationScreen: React.FC = () => {
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={() => setIsSettingsOpen(false)}
-            >
+            <TouchableOpacity style={styles.sendBtn} onPress={() => setIsSettingsOpen(false)}>
               <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
                 {currentLang === 'zh-TW' ? '完成' : 'Done'}
               </Text>
@@ -2308,7 +2726,7 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontFamily: THEME.fontFamily,
   },
-  topRightControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  topRightControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -2320,31 +2738,86 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   iconText: { color: THEME.text, fontWeight: '700' },
-  satelliteDropdownContainer: { paddingHorizontal: 16, marginBottom: 12, zIndex: 100 },
-  satelliteResultCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: THEME.surfaceLight,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
+  toastBanner: {
+    backgroundColor: 'rgba(52, 199, 89, 0.18)',
     borderWidth: 1,
     borderColor: THEME.success,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  satelliteFoundLabel: { color: THEME.textMuted, fontWeight: '600' },
-  satelliteFoundName: { color: THEME.text, fontWeight: '700', marginTop: 2 },
+  toastBannerText: {
+    color: THEME.success,
+    fontWeight: '700',
+  },
+  satelliteDropdownContainer: { paddingHorizontal: 16, marginBottom: 14, zIndex: 100 },
+  satelliteEditorCard: {
+    backgroundColor: THEME.surface,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: THEME.success,
+  },
+  satelliteFoundLabel: { color: THEME.success, fontWeight: '700' },
   nearbyPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: THEME.success },
-  addSituationPillBtn: {
-    backgroundColor: THEME.orange,
+  candidateChip: {
+    backgroundColor: THEME.surfaceLight,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
-  addSituationPillText: { color: '#000', fontWeight: '800' },
-  dismissPillBtn: { paddingHorizontal: 8, paddingVertical: 6 },
+  candidateChipActive: {
+    backgroundColor: THEME.orange,
+    borderColor: THEME.orange,
+  },
+  candidateChipText: {
+    color: THEME.text,
+    fontWeight: '600',
+  },
+  editableLocationInput: {
+    backgroundColor: THEME.bg,
+    color: THEME.text,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  templateTypeChip: {
+    backgroundColor: THEME.bg,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  templateTypeChipActive: {
+    backgroundColor: THEME.orange,
+    borderColor: THEME.orange,
+  },
+  templateTypeChipText: {
+    color: THEME.text,
+    fontWeight: '600',
+  },
+  saveLocationConfirmBtn: {
+    backgroundColor: THEME.orange,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  saveLocationConfirmBtnText: {
+    color: '#000',
+    fontWeight: '800',
+  },
+  dismissPillBtn: { paddingHorizontal: 8, paddingVertical: 4 },
   mainScroll: { flex: 1 },
-  greetingSection: { marginBottom: 18, marginTop: 8, paddingHorizontal: 16 },
+  greetingSection: { marginBottom: 16, marginTop: 6, paddingHorizontal: 16 },
   greetingTitle: {
     fontWeight: '800',
     color: THEME.text,
@@ -2366,20 +2839,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 16,
   },
-  heroImageCentered: { width: '100%', height: 185, resizeMode: 'cover' },
-  heroContent: { padding: 20, width: '100%' },
+  heroImageCentered: { width: '100%', height: 175, resizeMode: 'cover' },
+  heroContent: { padding: 18, width: '100%' },
   heroTitle: {
     fontWeight: '700',
     color: THEME.text,
-    marginBottom: 14,
     fontFamily: THEME.fontFamily,
+  },
+  deleteHeroVenueBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 59, 48, 0.15)',
+    borderWidth: 1,
+    borderColor: THEME.danger,
   },
   startModeBtn: {
     backgroundColor: THEME.orange,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
     width: '100%',
   },
   startModeBtnText: {
@@ -2399,8 +2879,9 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     fontFamily: THEME.fontFamily,
   },
-  carouselScroll: { gap: 14, paddingBottom: 20, paddingRight: 16 },
-  carouselItem: { alignItems: 'center', width: 84 },
+  carouselScroll: { gap: 14, paddingBottom: 20, paddingRight: 16, paddingTop: 6 },
+  carouselItemWrap: { position: 'relative', width: 86, alignItems: 'center' },
+  carouselItem: { alignItems: 'center', width: 86 },
   carouselItemImg: {
     width: 72,
     height: 72,
@@ -2415,6 +2896,42 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontFamily: THEME.fontFamily,
     textAlign: 'center',
+  },
+  carouselDeleteBadge: {
+    position: 'absolute',
+    top: -4,
+    right: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: THEME.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#000',
+  },
+  carouselDeleteBadgeText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  manageVenueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: THEME.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  manageVenueDeleteBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,59,48,0.15)',
   },
 
   // 🟠 TOP 180° CLERK SPLIT PANEL
@@ -2575,8 +3092,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.border,
   },
-
-  // 💡 SMART REPLY PILLS WITH SPEAKER
   smartReplyPillWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2599,8 +3114,6 @@ const styles = StyleSheet.create({
     borderLeftColor: THEME.border,
   },
   smartReplyBtnText: { color: THEME.text, fontWeight: '700' },
-
-  // 🎙️ LIVE SUBTITLE BOX WITH SPEAKER BUTTON (Yellow Box in Image 1)
   liveSubtitleBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2627,8 +3140,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // 🎯 INTERACTIVE STAGE CARD (Matches Image 2 Red Box)
   stageActiveCard: {
     backgroundColor: THEME.surface,
     borderRadius: 16,
@@ -2643,18 +3154,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
-  stageBackBtn: {
-    paddingVertical: 4,
-    paddingRight: 10,
-  },
-  stageBackText: {
-    color: THEME.textMuted,
-    fontWeight: '600',
-  },
-  stageCardCaption: {
-    color: THEME.textMuted,
-    fontWeight: '600',
-  },
+  stageBackBtn: { paddingVertical: 4, paddingRight: 10 },
+  stageBackText: { color: THEME.textMuted, fontWeight: '600' },
+  stageCardCaption: { color: THEME.textMuted, fontWeight: '600' },
   stageSpeakSmallBtn: {
     padding: 6,
     borderRadius: 8,
@@ -2670,9 +3172,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginHorizontal: -4,
   },
-  stageOptionCell: {
-    padding: 4,
-  },
+  stageOptionCell: { padding: 4 },
   stageOptionTile: {
     minHeight: 68,
     backgroundColor: THEME.bg,
@@ -2717,14 +3217,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // 📋 QUESTIONS LIST
   questionsList: { flex: 1 },
   sectionListHeader: {
     color: THEME.textMuted,
     fontWeight: '600',
     marginBottom: 8,
     marginTop: 4,
+  },
+  addCustomQaBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: THEME.surface,
+    borderWidth: 1,
+    borderColor: THEME.orange,
   },
   cardGroupBox: {
     backgroundColor: THEME.surface,
@@ -2747,6 +3253,12 @@ const styles = StyleSheet.create({
   cardQuestionHeaderText: {
     color: THEME.orange,
     fontWeight: '800',
+  },
+  deleteCardSmallBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,59,48,0.15)',
   },
   questionRow: {
     flexDirection: 'row',
@@ -2775,7 +3287,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   questionArrow: { color: THEME.textMuted },
-
   bottomActionBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2810,40 +3321,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: THEME.fontFamily,
   },
-
-  // 🔄 180° CLERK PICK MODAL STYLES (Matches Image 3)
-  clerkPickModalRoot: {
-    flex: 1,
-    backgroundColor: THEME.bg,
-  },
+  clerkPickModalRoot: { flex: 1, backgroundColor: THEME.bg },
   clerkPickRotatedArea: {
     flex: 1,
     transform: [{ rotate: '180deg' }],
     paddingHorizontal: 16,
   },
-  clerkPickHeader: {
-    marginBottom: 14,
-    paddingHorizontal: 4,
-  },
-  clerkPickOrangeSub: {
-    color: THEME.orange,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  clerkPickMainTitle: {
-    color: THEME.text,
-    fontWeight: '900',
-  },
+  clerkPickHeader: { marginBottom: 14, paddingHorizontal: 4 },
+  clerkPickOrangeSub: { color: THEME.orange, fontWeight: '700', marginBottom: 4 },
+  clerkPickMainTitle: { color: THEME.text, fontWeight: '900' },
   clerkPickGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginHorizontal: -6,
     paddingBottom: 24,
   },
-  clerkPickCell: {
-    width: '50%',
-    padding: 6,
-  },
+  clerkPickCell: { width: '50%', padding: 6 },
   clerkPickTile: {
     height: 100,
     backgroundColor: THEME.surface,
@@ -2860,10 +3353,7 @@ const styles = StyleSheet.create({
     borderColor: THEME.orange,
     borderWidth: 1.5,
   },
-  clerkPickTileText: {
-    color: THEME.text,
-    fontWeight: '700',
-  },
+  clerkPickTileText: { color: THEME.text, fontWeight: '700' },
   clerkKeypadContainer: {
     flex: 1,
     justifyContent: 'space-between',
@@ -2887,10 +3377,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginHorizontal: -4,
   },
-  clerkKeyCell: {
-    width: '33.333%',
-    padding: 4,
-  },
+  clerkKeyCell: { width: '33.333%', padding: 4 },
   clerkKeyBtn: {
     minHeight: 58,
     backgroundColor: THEME.surface,
@@ -2900,10 +3387,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clerkKeyBtnText: {
-    color: THEME.text,
-    fontWeight: '700',
-  },
+  clerkKeyBtnText: { color: THEME.text, fontWeight: '700' },
   clerkKeypadGhostBtn: {
     flex: 1,
     minHeight: 54,
@@ -2929,12 +3413,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: THEME.bg,
   },
-  clerkPickUserCancelText: {
-    color: THEME.textMuted,
-    fontWeight: '700',
-  },
-
-  // MODALS & SETTINGS
+  clerkPickUserCancelText: { color: THEME.textMuted, fontWeight: '700' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -2973,13 +3452,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fontBtnText: { color: THEME.text, fontWeight: '600' },
-  fontPreviewBox: {
-    backgroundColor: THEME.surface,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.border,
-  },
   typeModalCard: {
     width: '90%',
     maxWidth: 380,
@@ -3031,7 +3503,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     transform: [{ translateX: 22 }],
   },
-  settingHint: { color: THEME.textMuted, lineHeight: 20, marginBottom: 12 },
   closeBtn: { paddingVertical: 12, alignItems: 'center' },
   closeBtnText: {
     fontWeight: '600',
