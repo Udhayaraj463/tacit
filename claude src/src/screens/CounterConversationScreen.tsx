@@ -135,12 +135,13 @@ export const FONT_SCALE_OPTIONS = [
 ];
 
 export const VENUE_TEMPLATES = [
-  { id: 'cvs', label: '🏪 超商', emoji: '🏪', coverImage: 'https://images.unsplash.com/photo-1601599561096-f87c95fff1e9?w=1200' },
-  { id: 'drink', label: '🧋 咖啡飲料', emoji: '🧋', coverImage: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1200' },
-  { id: 'breakfast', label: '🥪 早餐店', emoji: '🥪', coverImage: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=1200' },
-  { id: 'pharmacy', label: '💊 藥局診所', emoji: '💊', coverImage: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=1200' },
-  { id: 'buffet', label: '🍱 便當餐廳', emoji: '🍱', coverImage: 'https://images.unsplash.com/photo-1548943487-a2e4b43b5930?w=1200' },
-  { id: 'other', label: '🏬 一般場所', emoji: '🏬', coverImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200' },
+  { id: 'cvs', label: '🏪 超商', enLabel: '🏪 CVS', emoji: '🏪', coverImage: 'https://images.unsplash.com/photo-1601599561096-f87c95fff1e9?w=1200' },
+  { id: 'drink', label: '🧋 咖啡飲料', enLabel: '🧋 Cafe', emoji: '🧋', coverImage: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=1200' },
+  { id: 'breakfast', label: '🥪 早餐店', enLabel: '🥪 Breakfast', emoji: '🥪', coverImage: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=1200' },
+  { id: 'pharmacy', label: '💊 藥局診所', enLabel: '💊 Pharmacy', emoji: '💊', coverImage: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=1200' },
+  { id: 'buffet', label: '🍱 便當餐廳', enLabel: '🍱 Dining', emoji: '🍱', coverImage: 'https://images.unsplash.com/photo-1548943487-a2e4b43b5930?w=1200' },
+  { id: 'university', label: '🏫 校園圖書館', enLabel: '🏫 Campus', emoji: '🏫', coverImage: 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200' },
+  { id: 'other', label: '🏬 一般場所', enLabel: '🏬 General', emoji: '🏬', coverImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200' },
 ];
 
 const DEFAULT_STORES_DATA = [
@@ -307,6 +308,17 @@ const DEFAULT_CARDS_DATA = [
     ],
   },
   {
+    id: 'campus_inquire',
+    stores: ['university'],
+    priority: 1,
+    question: { 'zh-TW': '請問需要什麼協助？', 'en-US': 'How can I help you?' },
+    keywords: ['學生證', '借書', '找哪位', '教室', 'library', 'id', 'card'],
+    options: [
+      { labels: { 'zh-TW': '借還書 / 查資料', 'en-US': 'Library Books' }, subLabels: { 'zh-TW': '圖書館櫃檯服務', 'en-US': 'Borrow/return books' }, tts: '您好，我需要借還書或查資料協助' },
+      { labels: { 'zh-TW': '出示學生證', 'en-US': 'Show Student ID' }, subLabels: { 'zh-TW': '驗證身分', 'en-US': 'Verify student ID' }, tts: '這是我的學生證' },
+    ],
+  },
+  {
     id: 'dinein',
     stores: ['*'],
     priority: 2,
@@ -416,7 +428,7 @@ export const CounterConversationScreen: React.FC = () => {
   const [isTypeToClerkOpen, setIsTypeToClerkOpen] = useState(false);
   const [customTypeInput, setCustomTypeInput] = useState('');
 
-  // Custom Add Q&A Modal States (For saving new out-of-data questions & answers)
+  // Custom Add Q&A Modal States
   const [isAddQaOpen, setIsAddQaOpen] = useState(false);
   const [newQuestionInput, setNewQuestionInput] = useState('');
   const [newAnswerInput, setNewAnswerInput] = useState('');
@@ -428,7 +440,7 @@ export const CounterConversationScreen: React.FC = () => {
   const [editablePlaceName, setEditablePlaceName] = useState('');
   const [selectedBaseType, setSelectedBaseType] = useState('cvs');
   const [detectedCandidates, setDetectedCandidates] = useState<
-    Array<{ label: string; type: string }>
+    Array<{ label: string; type: string; isPoi?: boolean }>
   >([]);
 
   // Live Speech Recognition States
@@ -527,10 +539,15 @@ export const CounterConversationScreen: React.FC = () => {
     } catch (e) {}
   };
 
-  // 🗑️ DELETE ANY SITUATION
+  // 🗑️ DELETE ANY SITUATION (Only inside Settings -> Manage Situations)
   const handleDeleteVenue = async (venueId: string) => {
     if (venues.length <= 1) {
-      Alert.alert('無法刪除', '請至少保留一個場景 (Keep at least one situation).');
+      Alert.alert(
+        currentLang === 'zh-TW' ? '無法刪除' : 'Cannot Delete',
+        currentLang === 'zh-TW'
+          ? '請至少保留一個場景。'
+          : 'Please keep at least one situation.'
+      );
       return;
     }
     const target = venues.find((v) => v.id === venueId);
@@ -539,7 +556,11 @@ export const CounterConversationScreen: React.FC = () => {
     if (activeVenue.id === venueId) {
       setActiveVenue(updated[0]);
     }
-    showToast(`已刪除場景「${target?.name?.['zh-TW'] || ''}」`);
+    showToast(
+      currentLang === 'zh-TW'
+        ? `已刪除「${target?.name?.['zh-TW'] || ''}」`
+        : `Deleted "${target?.name?.['en-US'] || ''}"`
+    );
   };
 
   // 🗑️ DELETE LEARNED / CUSTOM Q&A CARD
@@ -549,7 +570,7 @@ export const CounterConversationScreen: React.FC = () => {
     if (activePromptCard?.id === cardId) {
       resetStageToIdle();
     }
-    showToast('已刪除此問題與回答');
+    showToast(currentLang === 'zh-TW' ? '已刪除此問題與回答' : 'Deleted custom Q&A');
   };
 
   const saveCustomWallpaper = async () => {
@@ -614,14 +635,12 @@ export const CounterConversationScreen: React.FC = () => {
       enQuestion = await realTranslate(cleanQ, 'zh-TW', 'en-US');
     }
 
-    // Extract meaningful keywords (full phrase + segments) so future speech matches reliably
     const cleanKeywords = [cleanQ.toLowerCase()];
     const stripped = cleanQ.replace(/[？?！!，,。、\s]/g, '');
     if (stripped.length >= 2 && !cleanKeywords.includes(stripped.toLowerCase())) {
       cleanKeywords.push(stripped.toLowerCase());
     }
 
-    // Check if this question already exists in this situation
     const existingIndex = cardsData.findIndex(
       (c) =>
         (c.stores.includes(activeVenue.id) ||
@@ -661,12 +680,11 @@ export const CounterConversationScreen: React.FC = () => {
       return;
     }
 
-    // Brand new out-of-data Question + Answer Card saved to current situation
     const newCard = {
       id: `learned_${Date.now()}`,
       isCustom: true,
       stores: [activeVenue.id, ...(activeVenue.baseType ? [activeVenue.baseType] : [])],
-      priority: 0, // Appears right at the top of the situation
+      priority: 0,
       question: { 'zh-TW': cleanQ, 'en-US': enQuestion || cleanQ },
       keywords: cleanKeywords,
       options: [newOption],
@@ -751,7 +769,6 @@ export const CounterConversationScreen: React.FC = () => {
       openCardStage(matchedCard);
     }
 
-    // If out-of-data question, fetch Gemini suggestions AND allow user to save their choice
     if (triggeredReplies.length === 0 && isFinal && rawText.length > 1) {
       const dynamicAiReplies = await fetchGeminiDynamicReplies(
         rawText,
@@ -993,7 +1010,6 @@ export const CounterConversationScreen: React.FC = () => {
     speakSentence(displayToClerk, 'zh-TW');
     setSmartReplies([]);
 
-    // Automatically learn if clerk asked an out-of-data question on mic
     const questionContext = lastHeardQuestion || liveStreamText;
     if (
       questionContext &&
@@ -1026,18 +1042,18 @@ export const CounterConversationScreen: React.FC = () => {
     });
   };
 
-  const inferCategoryType = (nameStr: string, osmAmenity: string = '') => {
+  const inferCategoryType = (nameStr: string, osmTag: string = '') => {
     if (
-      osmAmenity === 'convenience' ||
-      osmAmenity === 'supermarket' ||
-      /7-ELEVEN|7-11|全家|FamilyMart|萊爾富|OK超商|全聯|家樂福|美廉社/i.test(nameStr)
+      osmTag === 'convenience' ||
+      osmTag === 'supermarket' ||
+      /7-ELEVEN|7-11|全家|FamilyMart|萊爾富|OK超商|全聯|家樂福|美廉社|Costco|好市多/i.test(nameStr)
     ) {
       return 'cvs';
     }
     if (
-      osmAmenity === 'cafe' ||
-      osmAmenity === 'beverages' ||
-      /星巴克|路易莎|Louisa|咖啡|茶|50嵐|迷客夏|清心|得正|可不可|麻古|鶴茶樓|再睡5分鐘|CoCo|一沐日|龜記/i.test(nameStr)
+      osmTag === 'cafe' ||
+      osmTag === 'beverages' ||
+      /星巴克|Starbucks|路易莎|Louisa|咖啡|茶|50嵐|迷客夏|清心|得正|可不可|麻古|鶴茶樓|再睡5分鐘|CoCo|一沐日|龜記/i.test(nameStr)
     ) {
       return 'drink';
     }
@@ -1045,78 +1061,218 @@ export const CounterConversationScreen: React.FC = () => {
       return 'breakfast';
     }
     if (
-      osmAmenity === 'pharmacy' ||
-      osmAmenity === 'hospital' ||
-      osmAmenity === 'clinic' ||
-      osmAmenity === 'dentist' ||
-      /藥局|診所|牙醫|醫院|屈臣氏|康是美|大樹藥局|丁丁/i.test(nameStr)
+      osmTag === 'pharmacy' ||
+      osmTag === 'hospital' ||
+      osmTag === 'clinic' ||
+      osmTag === 'dentist' ||
+      /藥局|診所|牙醫|醫院|屈臣氏|康是美|大樹藥局|丁丁|Satudora/i.test(nameStr)
     ) {
       return 'pharmacy';
     }
     if (
-      osmAmenity === 'restaurant' ||
-      osmAmenity === 'fast_food' ||
+      osmTag === 'restaurant' ||
+      osmTag === 'fast_food' ||
       /便當|自助餐|食堂|餐廳|小吃|麵|火鍋|八方雲集|四海遊龍|麥當勞|肯德基|摩斯/i.test(nameStr)
     ) {
       return 'buffet';
     }
+    if (
+      osmTag === 'university' ||
+      osmTag === 'college' ||
+      osmTag === 'library' ||
+      osmTag === 'school' ||
+      /大學|學院|圖書館|校區|系館|館|宿舍|University|College|Library/i.test(nameStr)
+    ) {
+      return 'university';
+    }
     return 'other';
   };
 
-  // 🛰️ FRESH REAL-TIME GPS + CANDIDATE STORE PICKER + EDITABLE STREET ADDRESS
+  // 🎯 MULTI-SAMPLE HIGH-PRECISION GPS ACQUISITION (Waits for sharpest <12m lock instead of coarse first reading)
+  const acquireBestGpsFix = async (): Promise<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  }> => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+      return new Promise((resolve, reject) => {
+        let bestPos: any = null;
+        let watchId: any = null;
+
+        const finish = () => {
+          if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+          if (bestPos) {
+            resolve({
+              latitude: bestPos.coords.latitude,
+              longitude: bestPos.coords.longitude,
+              accuracy: Math.round(bestPos.coords.accuracy || 50),
+            });
+          } else {
+            reject(new Error('WEB_GPS_TIMEOUT'));
+          }
+        };
+
+        const timer = setTimeout(finish, 3800);
+
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+              bestPos = pos;
+            }
+            // If we locked onto an exact < 12m satellite fix, resolve immediately!
+            if (pos.coords.accuracy <= 12) {
+              clearTimeout(timer);
+              finish();
+            }
+          },
+          (err) => {
+            if (!bestPos) {
+              clearTimeout(timer);
+              reject(err);
+            }
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 7000 }
+        );
+      });
+    } else {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        throw new Error('PERM_DENIED');
+      }
+
+      let bestFix: any = null;
+      let sub: any = null;
+
+      try {
+        return await new Promise(async (resolve, reject) => {
+          const timer = setTimeout(async () => {
+            sub?.remove?.();
+            if (bestFix) {
+              resolve({
+                latitude: bestFix.coords.latitude,
+                longitude: bestFix.coords.longitude,
+                accuracy: Math.round(bestFix.coords.accuracy || 15),
+              });
+            } else {
+              try {
+                const fallback = await Location.getCurrentPositionAsync({
+                  accuracy: Location.Accuracy.Highest,
+                });
+                resolve({
+                  latitude: fallback.coords.latitude,
+                  longitude: fallback.coords.longitude,
+                  accuracy: Math.round(fallback.coords.accuracy || 20),
+                });
+              } catch (e) {
+                reject(e);
+              }
+            }
+          }, 3500);
+
+          sub = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.BestForNavigation,
+              timeInterval: 300,
+              distanceInterval: 0,
+            },
+            (loc) => {
+              if (
+                !bestFix ||
+                (loc.coords.accuracy && loc.coords.accuracy < (bestFix.coords.accuracy || 999))
+              ) {
+                bestFix = loc;
+              }
+              if (loc.coords.accuracy && loc.coords.accuracy <= 10) {
+                clearTimeout(timer);
+                sub?.remove?.();
+                resolve({
+                  latitude: loc.coords.latitude,
+                  longitude: loc.coords.longitude,
+                  accuracy: Math.round(loc.coords.accuracy),
+                });
+              }
+            }
+          );
+        });
+      } finally {
+        sub?.remove?.();
+      }
+    }
+  };
+
+  // 🛰️ EXACT PLACE NAME & BUILDING DETECTOR (Prioritizes real place/store/campus/building names over generic street numbers)
   const scanLiveLocation = async () => {
     setIsAutoDetecting(true);
     setNearbyVenueFound(null);
     setDetectedCandidates([]);
 
     try {
-      let coords: { latitude: number; longitude: number } | null = null;
+      const fix = await acquireBestGpsFix();
+      const { latitude, longitude, accuracy } = fix;
 
-      // 1. Force a FRESH (maximumAge: 0) high-accuracy GPS reading so it never uses stale cached coordinates
-      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
-        coords = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) =>
-              resolve({
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-              }),
-            (err) => reject(err),
-            { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 }
-          );
-        });
-      } else {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('需要定位權限', '請允許定位權限以偵測目前位置或街道地址。');
-          setIsAutoDetecting(false);
-          return;
-        }
-        const loc: any = await Promise.race([
-          Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.BestForNavigation,
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('GPS_TIMEOUT')), 7000)),
-        ]);
-        if (loc?.coords) {
-          coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-        }
-      }
+      const poiCandidates: Array<{ label: string; type: string; isPoi: boolean }> = [];
+      let formattedStreet = '';
 
-      if (!coords) {
-        throw new Error('NO_COORDS');
-      }
-
-      const { latitude, longitude } = coords;
-      const candidates: Array<{ label: string; type: string }> = [];
-
-      // 2. Fetch Nearby Shops/POIs within 55m sorted strictly by closest distance (excluding giant landuse/university polygons)
+      // 1. Query Nominatim at Zoom 18 (Building / Shop / Amenity level) AND Zoom 16 (Campus / Landmark level)
       try {
-        const query = `[out:json][timeout:6];(
-          node(around:55,${latitude},${longitude})["name"];
-          way(around:40,${latitude},${longitude})["shop"]["name"];
-          way(around:40,${latitude},${longitude})["amenity"]["name"];
-        );out tags center;`;
+        const nomRes = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=zh-TW`,
+          { headers: { 'User-Agent': 'MochiVisibleDialogApp/3.0' } }
+        );
+        const nomData = await nomRes.json();
+        const addr = nomData?.address || {};
+
+        // Extract exact Named Place / Building / Campus / Shop from Nominatim
+        const namedParts = [
+          nomData?.name,
+          addr.shop,
+          addr.amenity,
+          addr.building,
+          addr.university,
+          addr.college,
+          addr.leisure,
+          addr.tourism,
+          addr.office,
+          addr.commercial,
+        ].filter(Boolean);
+
+        namedParts.forEach((pName) => {
+          // Skip if the name is just a road name or a raw number
+          if (pName && pName !== addr.road && !/^\d+號?$/.test(pName)) {
+            if (!poiCandidates.some((c) => c.label === pName)) {
+              poiCandidates.push({
+                label: pName,
+                type: inferCategoryType(pName, nomData?.type || nomData?.category || ''),
+                isPoi: true,
+              });
+            }
+          }
+        });
+
+        // Cleanly format exact street address without duplicate "號號"
+        const district = addr.suburb || addr.city_district || addr.town || addr.city || '';
+        const road = addr.road || addr.pedestrian || addr.neighbourhood || '';
+        const rawHouse = (addr.house_number || '').trim();
+        const cleanHouse = rawHouse
+          ? rawHouse.endsWith('號')
+            ? rawHouse
+            : `${rawHouse}號`
+          : '';
+
+        formattedStreet = [district, road, cleanHouse].filter(Boolean).join('');
+      } catch (nomErr) {}
+
+      // 2. Query Overpass OSM for exact enclosing building/campus (`is_in`) AND closest named nodes/ways within 45m
+      try {
+        const query = `[out:json][timeout:6];
+          is_in(${latitude},${longitude})->.a;
+          (
+            way(pivot.a)["name"];
+            relation(pivot.a)["name"];
+            node(around:45,${latitude},${longitude})["name"];
+            way(around:45,${latitude},${longitude})["name"];
+          );
+          out tags center;`;
 
         const res = await fetch(
           `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
@@ -1124,40 +1280,46 @@ export const CounterConversationScreen: React.FC = () => {
         const data = await res.json();
 
         if (data?.elements?.length > 0) {
-          const sorted = data.elements
-            .filter(
-              (el: any) =>
-                el.tags?.name &&
-                el.tags?.amenity !== 'university' &&
-                el.tags?.building !== 'university'
-            )
+          const scored = data.elements
+            .filter((el: any) => {
+              const t = el.tags || {};
+              // Ignore roads/highways/bus stops so we only get real places, shops, and buildings
+              if (t.highway || t.public_transport || t.railway || t.boundary === 'administrative') {
+                return false;
+              }
+              return Boolean(t['name:zh'] || t.name || t.brand);
+            })
             .map((el: any) => {
               const elLat = el.lat ?? el.center?.lat ?? latitude;
               const elLon = el.lon ?? el.center?.lon ?? longitude;
-              const dist = Math.hypot(elLat - latitude, elLon - longitude);
-              const nameZh =
-                el.tags['name:zh'] ||
-                el.tags['brand:zh'] ||
-                el.tags.name ||
-                el.tags.brand ||
-                '';
-              const branch = el.tags.branch ? ` (${el.tags.branch})` : '';
+              const distMeters =
+                Math.hypot(elLat - latitude, elLon - longitude) * 111320;
+              const t = el.tags || {};
+              const nameZh = t['name:zh'] || t['brand:zh'] || t.name || t.brand || '';
+              const branch = t.branch ? ` (${t.branch})` : '';
               const fullLabel = `${nameZh}${branch}`.trim();
               const cat = inferCategoryType(
                 fullLabel,
-                el.tags.amenity || el.tags.shop || ''
+                t.amenity || t.shop || t.building || ''
               );
-              return { label: fullLabel, type: cat, dist };
+              // Prioritize shops/amenities/buildings right at the user's coordinates
+              const isShopOrBuilding = Boolean(t.shop || t.amenity || t.building);
+              const priorityScore = isShopOrBuilding ? distMeters : distMeters + 15;
+              return { label: fullLabel, type: cat, score: priorityScore, distMeters };
             })
-            .sort((a: any, b: any) => a.dist - b.dist);
+            .sort((a: any, b: any) => a.score - b.score);
 
-          sorted.forEach((item: any) => {
+          scored.forEach((item: any) => {
             if (
               item.label &&
-              !candidates.some((c) => c.label === item.label) &&
-              candidates.length < 5
+              !poiCandidates.some((c) => c.label === item.label) &&
+              poiCandidates.length < 6
             ) {
-              candidates.push({ label: item.label, type: item.type });
+              poiCandidates.push({
+                label: item.label,
+                type: item.type,
+                isPoi: true,
+              });
             }
           });
         }
@@ -1165,74 +1327,79 @@ export const CounterConversationScreen: React.FC = () => {
         console.warn('Overpass lookup warning:', osmErr);
       }
 
-      // 3. Always fetch exact Street Address (路名門牌) via OpenStreetMap Nominatim so user can see/edit address
-      let streetAddress = '';
-      try {
-        const nomRes = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=zh-TW`,
-          { headers: { 'User-Agent': 'MochiVisibleDialogApp/2.0' } }
-        );
-        const nomData = await nomRes.json();
-        const addr = nomData?.address || {};
-        const poiName = nomData?.name || addr.shop || addr.amenity || '';
-        const district = addr.suburb || addr.city_district || addr.town || addr.County || '';
-        const road = addr.road || addr.pedestrian || addr.neighbourhood || '';
-        const houseNo = addr.house_number ? `${addr.house_number}號` : '';
-
-        streetAddress = [district, road, houseNo].filter(Boolean).join('');
-
-        if (poiName && !candidates.some((c) => c.label === poiName)) {
-          candidates.unshift({
-            label: poiName,
-            type: inferCategoryType(poiName),
-          });
-        }
-        if (streetAddress && !candidates.some((c) => c.label === streetAddress)) {
-          candidates.push({
-            label: streetAddress,
-            type: 'other',
-          });
-        }
-      } catch (nomErr) {}
-
-      // 4. Native OS Geocode Fallback
-      if (candidates.length === 0 && Platform.OS !== 'web') {
+      // 3. Native OS Geocode POI Name Fallback (Android / iOS)
+      if (Platform.OS !== 'web') {
         try {
           const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
           if (rev && rev.length > 0) {
             const a = rev[0];
-            const nativeAddr = [a.district || a.city, a.street || a.name, a.streetNumber]
-              .filter(Boolean)
-              .join('');
-            if (nativeAddr) {
-              candidates.push({ label: nativeAddr, type: 'other' });
+            if (a.name && a.name !== a.street && !/^\d+/.test(a.name)) {
+              if (!poiCandidates.some((c) => c.label === a.name)) {
+                poiCandidates.unshift({
+                  label: a.name,
+                  type: inferCategoryType(a.name),
+                  isPoi: true,
+                });
+              }
+            }
+            if (!formattedStreet) {
+              const rawNum = (a.streetNumber || '').trim();
+              const cleanNum = rawNum
+                ? rawNum.endsWith('號')
+                  ? rawNum
+                  : `${rawNum}號`
+                : '';
+              formattedStreet = [a.district || a.city, a.street, cleanNum]
+                .filter(Boolean)
+                .join('');
             }
           }
         } catch (e) {}
       }
 
-      if (candidates.length === 0) {
-        candidates.push({
-          label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+      // 4. Append exact street address at the end as an option if needed
+      if (formattedStreet && !poiCandidates.some((c) => c.label === formattedStreet)) {
+        poiCandidates.push({
+          label: formattedStreet,
           type: 'other',
+          isPoi: false,
         });
       }
 
-      const primary = candidates[0];
-      setDetectedCandidates(candidates);
-      setEditablePlaceName(primary.label);
-      setSelectedBaseType(primary.type);
+      if (poiCandidates.length === 0) {
+        poiCandidates.push({
+          label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+          type: 'other',
+          isPoi: false,
+        });
+      }
+
+      // Pick the first real POI/Place Name (or street address only if no POI name exists)
+      const bestMatch = poiCandidates.find((c) => c.isPoi) || poiCandidates[0];
+
+      setDetectedCandidates(poiCandidates);
+      setEditablePlaceName(bestMatch.label);
+      setSelectedBaseType(bestMatch.type);
       setNearbyVenueFound({
         coords: { latitude, longitude },
-        streetAddress: streetAddress || primary.label,
+        accuracy,
+        streetAddress: formattedStreet,
       });
-    } catch (e) {
+    } catch (e: any) {
       console.error('GPS Detection Error:', e);
-      // Even if GPS fails or is denied, open the editable panel so the user can type their preferred place name!
-      setDetectedCandidates([]);
-      setEditablePlaceName('');
-      setSelectedBaseType('other');
-      setNearbyVenueFound({ manualOnly: true });
+      if (e?.message === 'PERM_DENIED') {
+        Alert.alert(
+          currentLang === 'zh-TW' ? '需要定位權限' : 'Location Permission Required',
+          currentLang === 'zh-TW'
+            ? '請允許定位權限以偵測目前地點名稱。'
+            : 'Please allow location permission to detect your current place name.'
+        );
+      } else {
+        setDetectedCandidates([]);
+        setEditablePlaceName('');
+        setSelectedBaseType('other');
+        setNearbyVenueFound({ manualOnly: true });
+      }
     } finally {
       setIsAutoDetecting(false);
     }
@@ -1252,7 +1419,7 @@ export const CounterConversationScreen: React.FC = () => {
     }
 
     const template =
-      VENUE_TEMPLATES.find((t) => t.id === selectedBaseType) || VENUE_TEMPLATES[5];
+      VENUE_TEMPLATES.find((t) => t.id === selectedBaseType) || VENUE_TEMPLATES[6];
 
     const newDynamicVenue = {
       id: `loc_${Date.now()}`,
@@ -1281,7 +1448,11 @@ export const CounterConversationScreen: React.FC = () => {
     await persistVenues(updatedVenues);
     setActiveVenue(newDynamicVenue);
     setNearbyVenueFound(null);
-    showToast(`✓ 已儲存並切換至「${finalNameZh}」`);
+    showToast(
+      currentLang === 'zh-TW'
+        ? `✓ 已儲存並切換至「${finalNameZh}」`
+        : `✓ Saved & switched to "${finalNameZh}"`
+    );
   };
 
   const handleTypeToClerkSubmit = async () => {
@@ -1298,7 +1469,6 @@ export const CounterConversationScreen: React.FC = () => {
       setClerkSub(currentLang === 'zh-TW' ? '請直接對手機說話，或點選問題' : 'Please speak or tap a question');
       speakSentence(finalSpeech, speechLang);
 
-      // Automatically save out-of-data Question + Typed Answer for future suggestions!
       const questionToBind =
         lastHeardQuestion ||
         (activePromptCard ? activePromptCard.question?.['zh-TW'] : '') ||
@@ -1328,11 +1498,10 @@ export const CounterConversationScreen: React.FC = () => {
     return valid.sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2));
   };
 
-  // Dynamic font size helper
   const fs = (base: number) => Math.round(base * fontScale);
 
   // ============================================================================
-  // 🏠 HOME SCREEN (When not in Counter Split Mode)
+  // 🏠 HOME SCREEN (Clean UI — No Delete Baskets or Red X Marks Outside Settings)
   // ============================================================================
   if (!isCounterMode) {
     return (
@@ -1362,7 +1531,9 @@ export const CounterConversationScreen: React.FC = () => {
               {isAutoDetecting ? (
                 <ActivityIndicator size="small" color={THEME.orange} />
               ) : (
-                <Text style={[styles.iconText, { fontSize: fs(17) }]}>🛰️ 定位</Text>
+                <Text style={[styles.iconText, { fontSize: fs(16) }]}>
+                  🛰️ {currentLang === 'zh-TW' ? '定位' : 'GPS'}
+                </Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -1400,7 +1571,7 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         )}
 
-        {/* 🛰️ EDITABLE GPS LOCATION & CUSTOM SITUATION CREATOR CARD */}
+        {/* 🛰️ PRECISE PLACE NAME DETECTOR & EDITABLE SITUATION CREATOR */}
         {nearbyVenueFound && (
           <View style={styles.satelliteDropdownContainer}>
             <View style={styles.satelliteEditorCard}>
@@ -1409,27 +1580,58 @@ export const CounterConversationScreen: React.FC = () => {
                   flexDirection: 'row',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  marginBottom: 8,
+                  marginBottom: 6,
                 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                   <View style={styles.nearbyPulseDot} />
-                  <Text style={[styles.satelliteFoundLabel, { fontSize: fs(13) }]}>
-                    {currentLang === 'zh-TW'
-                      ? '目前定位 / 可自由修改名稱後加入場景：'
-                      : 'Detected Location (Edit name before saving):'}
+                  <Text style={[styles.satelliteFoundLabel, { fontSize: fs(13), flex: 1 }]}>
+                    {nearbyVenueFound.manualOnly
+                      ? currentLang === 'zh-TW'
+                        ? '新增自訂場景名稱：'
+                        : 'Add Custom Situation:'
+                      : currentLang === 'zh-TW'
+                      ? `目前精準定位地點 ${
+                          nearbyVenueFound.accuracy ? `(誤差 ±${nearbyVenueFound.accuracy}m)` : ''
+                        }：`
+                      : `Precise Location ${
+                          nearbyVenueFound.accuracy ? `(±${nearbyVenueFound.accuracy}m)` : ''
+                        }:`}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.dismissPillBtn}
-                  onPress={() => setNearbyVenueFound(null)}
-                >
-                  <Text style={{ color: THEME.textMuted, fontSize: fs(16) }}>✕</Text>
-                </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  {!nearbyVenueFound.manualOnly && (
+                    <TouchableOpacity
+                      style={styles.rescanSmallBtn}
+                      onPress={scanLiveLocation}
+                    >
+                      <Text style={{ color: THEME.orange, fontSize: fs(12), fontWeight: '700' }}>
+                        🔄 {currentLang === 'zh-TW' ? '重新精準定位' : 'Re-scan'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={styles.dismissPillBtn}
+                    onPress={() => setNearbyVenueFound(null)}
+                  >
+                    <Text style={{ color: THEME.textMuted, fontSize: fs(16) }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              {/* Clickable Nearby Store & Street Address Candidates */}
-              {detectedCandidates.length > 1 && (
+              {/* Warn user if desktop browser is using coarse ISP/Wi-Fi IP location (> 150m accuracy) */}
+              {nearbyVenueFound.accuracy && nearbyVenueFound.accuracy > 150 && (
+                <Text style={{ color: THEME.orange, fontSize: fs(12), marginBottom: 6 }}>
+                  ⚠️{' '}
+                  {currentLang === 'zh-TW'
+                    ? '電腦瀏覽器無 GPS 晶片，可能顯示電信商機房位置；用手機開啟即可取得精準店名，或直接於下方修改名稱：'
+                    : 'Desktop browser uses network IP location. Open on phone for exact GPS or edit name below:'}
+                </Text>
+              )}
+
+              {/* Clickable Nearby Place Names & Exact Address Candidates */}
+              {detectedCandidates.length > 0 && (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -1458,22 +1660,23 @@ export const CounterConversationScreen: React.FC = () => {
                           },
                         ]}
                       >
-                        📍 {cand.label}
+                        {cand.isPoi ? '🏢 ' : '📍 '}
+                        {cand.label}
                       </Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
               )}
 
-              {/* Editable Place Name Input (User can rename street address to preferred name) */}
+              {/* Editable Place Name Input */}
               <TextInput
                 style={[styles.editableLocationInput, { fontSize: fs(16) }]}
                 value={editablePlaceName}
                 onChangeText={setEditablePlaceName}
                 placeholder={
                   currentLang === 'zh-TW'
-                    ? '輸入自訂地點或店名 (例如：7-11 中壢店)...'
-                    : 'Enter preferred place name...'
+                    ? '輸入或修改地點名稱 (例如：元智大學 / 7-11)...'
+                    : 'Enter or edit place name...'
                 }
                 placeholderTextColor={THEME.textMuted}
               />
@@ -1515,7 +1718,7 @@ export const CounterConversationScreen: React.FC = () => {
                         },
                       ]}
                     >
-                      {tpl.label}
+                      {currentLang === 'zh-TW' ? tpl.label : tpl.enLabel}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -1551,32 +1754,14 @@ export const CounterConversationScreen: React.FC = () => {
             </Text>
           </View>
 
+          {/* Clean Hero Card (No Delete Basket Button Here) */}
           <View style={styles.heroCard}>
             <Image source={{ uri: getActiveCoverImage() }} style={styles.heroImageCentered} />
             <View style={styles.heroContent}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 12,
-                }}
-              >
-                <Text style={[styles.heroTitle, { fontSize: fs(22), flex: 1 }]}>
-                  {activeVenue.emoji}{' '}
-                  {activeVenue.name[currentLang] || activeVenue.name['zh-TW']}
-                </Text>
-                {venues.length > 1 && (
-                  <TouchableOpacity
-                    style={styles.deleteHeroVenueBtn}
-                    onPress={() => handleDeleteVenue(activeVenue.id)}
-                  >
-                    <Text style={{ color: THEME.danger, fontSize: fs(13), fontWeight: '700' }}>
-                      🗑️ {currentLang === 'zh-TW' ? '刪除此場景' : 'Delete'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              <Text style={[styles.heroTitle, { fontSize: fs(23), marginBottom: 14 }]}>
+                {activeVenue.emoji}{' '}
+                {activeVenue.name[currentLang] || activeVenue.name['zh-TW']}
+              </Text>
 
               <TouchableOpacity
                 style={styles.startModeBtn}
@@ -1597,7 +1782,7 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* All Situations Carousel with Delete Badge & Add Custom Button */}
+          {/* Clean All Situations Carousel (No Red X Marks Outside) */}
           <View style={styles.carouselSection}>
             <View
               style={{
@@ -1609,7 +1794,7 @@ export const CounterConversationScreen: React.FC = () => {
               }}
             >
               <Text style={[styles.carouselTitle, { fontSize: fs(17), marginBottom: 0 }]}>
-                {currentLang === 'zh-TW' ? '切換或管理場景' : 'All Situations'}
+                {currentLang === 'zh-TW' ? '切換所有場景' : 'All Situations'}
               </Text>
               <TouchableOpacity
                 onPress={() => {
@@ -1631,50 +1816,38 @@ export const CounterConversationScreen: React.FC = () => {
               contentContainerStyle={styles.carouselScroll}
             >
               {venues.map((v) => (
-                <View key={v.id} style={styles.carouselItemWrap}>
-                  <TouchableOpacity
-                    style={styles.carouselItem}
-                    onPress={() => setActiveVenue(v)}
+                <TouchableOpacity
+                  key={v.id}
+                  style={styles.carouselItem}
+                  onPress={() => setActiveVenue(v)}
+                >
+                  <Image
+                    source={{ uri: customWallpapers[v.id] || v.coverImage }}
+                    style={[
+                      styles.carouselItemImg,
+                      activeVenue.id === v.id && styles.carouselItemImgActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.carouselItemText,
+                      { fontSize: fs(13) },
+                      activeVenue.id === v.id && {
+                        color: THEME.orange,
+                        fontWeight: 'bold',
+                      },
+                    ]}
+                    numberOfLines={1}
                   >
-                    <Image
-                      source={{ uri: customWallpapers[v.id] || v.coverImage }}
-                      style={[
-                        styles.carouselItemImg,
-                        activeVenue.id === v.id && styles.carouselItemImgActive,
-                      ]}
-                    />
-                    <Text
-                      style={[
-                        styles.carouselItemText,
-                        { fontSize: fs(13) },
-                        activeVenue.id === v.id && {
-                          color: THEME.orange,
-                          fontWeight: 'bold',
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {getVenueShortName(v)}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Delete Situation X Badge */}
-                  {venues.length > 1 && (
-                    <TouchableOpacity
-                      style={styles.carouselDeleteBadge}
-                      onPress={() => handleDeleteVenue(v.id)}
-                      accessibilityLabel={`刪除 ${getVenueShortName(v)}`}
-                    >
-                      <Text style={styles.carouselDeleteBadgeText}>✕</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                    {getVenueShortName(v)}
+                  </Text>
+                </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
         </ScrollView>
 
-        {/* Modal: Flexible Settings + Manage Situations */}
+        {/* Modal: Flexible Settings + Manage Situations (Delete kept cleanly inside Settings) */}
         <Modal visible={isSettingsOpen} transparent animationType="fade">
           <View style={styles.modalBackdrop}>
             <ScrollView
@@ -1726,7 +1899,7 @@ export const CounterConversationScreen: React.FC = () => {
               <View style={styles.settingsDivider} />
 
               <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
-                {currentLang === 'zh-TW' ? '管理所有場景 (可刪除)' : 'Manage Situations'}
+                {currentLang === 'zh-TW' ? '管理所有場景 (Manage Situations)' : 'Manage Situations'}
               </Text>
               {venues.map((v) => (
                 <View key={v.id} style={styles.manageVenueRow}>
@@ -1739,7 +1912,7 @@ export const CounterConversationScreen: React.FC = () => {
                       onPress={() => handleDeleteVenue(v.id)}
                     >
                       <Text style={{ color: THEME.danger, fontSize: fs(14), fontWeight: '700' }}>
-                        🗑️ 刪除
+                        🗑️ {currentLang === 'zh-TW' ? '刪除' : 'Delete'}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1975,7 +2148,6 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* ✨ Toast inside Counter Mode when a new Question + Answer is learned */}
           {!!saveToastMsg && (
             <View style={[styles.toastBanner, { marginHorizontal: 0, marginBottom: 8 }]}>
               <Text style={[styles.toastBannerText, { fontSize: fs(13) }]}>
@@ -1984,7 +2156,6 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           )}
 
-          {/* 💡 1-Tap Triggered Suggestion Pills + Speaker Button */}
           {smartReplies.length > 0 && (
             <ScrollView
               horizontal
@@ -2017,7 +2188,6 @@ export const CounterConversationScreen: React.FC = () => {
             </ScrollView>
           )}
 
-          {/* 🎙️ LIVE SUBTITLE TRANSCRIBE BOX + SPEAKER + SAVE Q&A BUTTON */}
           {liveStreamText ? (
             <View style={styles.liveSubtitleBox}>
               <View style={{ flex: 1, paddingRight: 8 }}>
@@ -2254,7 +2424,7 @@ export const CounterConversationScreen: React.FC = () => {
                           accessibilityLabel="刪除此自訂問題"
                         >
                           <Text style={{ color: THEME.danger, fontSize: fs(13), fontWeight: '700' }}>
-                            刪除
+                            {currentLang === 'zh-TW' ? '刪除' : 'Delete'}
                           </Text>
                         </TouchableOpacity>
                       )}
@@ -2528,7 +2698,7 @@ export const CounterConversationScreen: React.FC = () => {
         </View>
       </Modal>
 
-      {/* Modal: Type to Clerk (Automatically learns if answering a heard question) */}
+      {/* Modal: Type to Clerk */}
       <Modal visible={isTypeToClerkOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.typeModalCard}>
@@ -2762,6 +2932,14 @@ const styles = StyleSheet.create({
   },
   satelliteFoundLabel: { color: THEME.success, fontWeight: '700' },
   nearbyPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: THEME.success },
+  rescanSmallBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: THEME.surfaceLight,
+    borderWidth: 1,
+    borderColor: THEME.orange,
+  },
   candidateChip: {
     backgroundColor: THEME.surfaceLight,
     paddingHorizontal: 12,
@@ -2846,14 +3024,6 @@ const styles = StyleSheet.create({
     color: THEME.text,
     fontFamily: THEME.fontFamily,
   },
-  deleteHeroVenueBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 59, 48, 0.15)',
-    borderWidth: 1,
-    borderColor: THEME.danger,
-  },
   startModeBtn: {
     backgroundColor: THEME.orange,
     paddingVertical: 16,
@@ -2879,9 +3049,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     fontFamily: THEME.fontFamily,
   },
-  carouselScroll: { gap: 14, paddingBottom: 20, paddingRight: 16, paddingTop: 6 },
-  carouselItemWrap: { position: 'relative', width: 86, alignItems: 'center' },
-  carouselItem: { alignItems: 'center', width: 86 },
+  carouselScroll: { gap: 14, paddingBottom: 20, paddingRight: 16, paddingTop: 4 },
+  carouselItem: { alignItems: 'center', width: 84 },
   carouselItemImg: {
     width: 72,
     height: 72,
@@ -2896,24 +3065,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontFamily: THEME.fontFamily,
     textAlign: 'center',
-  },
-  carouselDeleteBadge: {
-    position: 'absolute',
-    top: -4,
-    right: 2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: THEME.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#000',
-  },
-  carouselDeleteBadgeText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: '900',
   },
   manageVenueRow: {
     flexDirection: 'row',
