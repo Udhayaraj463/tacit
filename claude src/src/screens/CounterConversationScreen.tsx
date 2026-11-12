@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -1724,17 +1724,6 @@ export const CounterConversationScreen: React.FC = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={toggleThemeMode}
-              style={[
-                styles.iconBtn,
-                { backgroundColor: THEME.surface, borderColor: THEME.border },
-              ]}
-              accessibilityLabel="切換深色或淺色主題"
-            >
-              <Text style={{ fontSize: fs(16) }}>{themeMode === 'dark' ? '☀️' : '🌙'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
               onPress={() => setIsTranslateMode(!isTranslateMode)}
               style={[
                 styles.iconBtn,
@@ -2538,17 +2527,6 @@ export const CounterConversationScreen: React.FC = () => {
                     ? '點我開始聽'
                     : 'Tap to Listen'}
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.smallSettingsBtn,
-                  { backgroundColor: THEME.surface, borderColor: THEME.border },
-                ]}
-                onPress={toggleThemeMode}
-                accessibilityLabel="切換深淺主題"
-              >
-                <Text style={{ fontSize: fs(14) }}>{themeMode === 'dark' ? '☀️' : '🌙'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -3372,6 +3350,69 @@ export const CounterConversationScreen: React.FC = () => {
                 </TouchableOpacity>
               ))}
             </View>
+            <Text
+              style={[
+                styles.settingsModalTitle,
+                { color: THEME.text, fontSize: fs(17), marginBottom: 10, marginTop: 4 },
+              ]}
+            >
+              {currentLang === 'zh-TW' ? '外觀主題 (Theme)' : 'Appearance Theme'}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              <TouchableOpacity
+                style={[
+                  styles.fontBtn,
+                  { flex: 1, backgroundColor: THEME.bg, borderColor: THEME.border },
+                  themeMode === 'dark' && { backgroundColor: THEME.orange, borderColor: THEME.orange },
+                ]}
+                onPress={() => themeMode !== 'dark' && toggleThemeMode()}
+              >
+                <Text
+                  style={[
+                    styles.fontBtnText,
+                    { color: THEME.text, fontSize: fs(14) },
+                    themeMode === 'dark' && { color: '#000', fontWeight: '800' },
+                  ]}
+                >
+                  🌙 {currentLang === 'zh-TW' ? '深色' : 'Dark'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.fontBtn,
+                  { flex: 1, backgroundColor: THEME.bg, borderColor: THEME.border },
+                  themeMode === 'light' && { backgroundColor: THEME.orange, borderColor: THEME.orange },
+                ]}
+                onPress={() => themeMode !== 'light' && toggleThemeMode()}
+              >
+                <Text
+                  style={[
+                    styles.fontBtnText,
+                    { color: THEME.text, fontSize: fs(14) },
+                    themeMode === 'light' && { color: '#000', fontWeight: '800' },
+                  ]}
+                >
+                  ☀️ {currentLang === 'zh-TW' ? '淺色' : 'Light'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {Platform.OS === 'web' && (
+              <TouchableOpacity
+                style={[
+                  styles.fontBtn,
+                  { backgroundColor: THEME.bg, borderColor: THEME.border, marginBottom: 16 },
+                ]}
+                onPress={() => {
+                  const next = localStorage.getItem('mochi_desktop_full_window') === 'true' ? 'false' : 'true';
+                  localStorage.setItem('mochi_desktop_full_window', next);
+                  window.dispatchEvent(new Event('mochi-view-mode-change'));
+                }}
+              >
+                <Text style={[styles.fontBtnText, { color: THEME.text, fontSize: fs(14) }]}>
+                  🖥️ {currentLang === 'zh-TW' ? '切換：手機外框 / 整個視窗' : 'Toggle Phone Frame / Full Window'}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.sendBtn} onPress={() => setIsSettingsOpen(false)}>
               <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
                 {currentLang === 'zh-TW' ? '完成' : 'Done'}
@@ -4215,3 +4256,4 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
