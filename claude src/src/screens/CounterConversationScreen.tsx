@@ -12,11 +12,16 @@ import {
   TextInput,
   Platform,
   Alert,
+  Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
+import { useKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ☁️ RENDER CLOUD SYNC ENDPOINT
+const CLOUD_SYNC_URL = 'https://tacit-77cd.onrender.com/api/sync';
 
 // 🛡️ Platform-Guarded Native Speech Loader (Android APK & Web/iOS safe)
 let NativeSpeechModule: any = null;
@@ -46,30 +51,48 @@ const attachNativeSpeechEvent = (eventName: string, callback: (event: any) => vo
   return null;
 };
 
-const THEME = {
-  bg: '#000000',
-  surface: '#1C1C1E',
-  surfaceLight: '#2C2C2E',
-  text: '#FFFFFF',
-  textMuted: '#8E8E93',
-  orange: '#FF9500',
-  danger: '#FF3B30',
-  success: '#34C759',
-  translateAccent: '#0A84FF',
-  border: '#38383A',
-  fontFamily:
-    Platform.OS === 'web'
-      ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
-      : undefined,
+// 🎨 DYNAMIC DARK & LIGHT THEME PALETTES
+const THEMES = {
+  dark: {
+    bg: '#000000',
+    surface: '#1C1C1E',
+    surfaceLight: '#2C2C2E',
+    text: '#FFFFFF',
+    textMuted: '#8E8E93',
+    orange: '#FF9500',
+    danger: '#FF3B30',
+    success: '#34C759',
+    translateAccent: '#0A84FF',
+    border: '#38383A',
+  },
+  light: {
+    bg: '#F4F4F7',
+    surface: '#FFFFFF',
+    surfaceLight: '#E5E5EA',
+    text: '#111111',
+    textMuted: '#636366',
+    orange: '#FF9500',
+    danger: '#FF3B30',
+    success: '#28CD41',
+    translateAccent: '#007AFF',
+    border: '#D1D1D6',
+  },
 };
+
+const FONT_FAMILY =
+  Platform.OS === 'web'
+    ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+    : undefined;
 
 export type SupportedLang = 'en-US' | 'zh-TW';
 
 const STORAGE_KEYS = {
-  VENUES: 'mochi_custom_venues_v4',
-  CARDS: 'mochi_custom_cards_v4',
-  WALLPAPERS: 'mochi_wallpapers_v4',
-  FONT_SCALE: 'mochi_font_scale_v4',
+  VENUES: 'mochi_custom_venues_v5',
+  CARDS: 'mochi_custom_cards_v5',
+  WALLPAPERS: 'mochi_wallpapers_v5',
+  FONT_SCALE: 'mochi_font_scale_v5',
+  THEME_MODE: 'mochi_theme_mode_v5',
+  CARRIER_CODE: 'mochi_carrier_code_v5',
 };
 
 const getGeminiApiKey = () => {
@@ -337,7 +360,7 @@ const DEFAULT_CARDS_DATA = [
     keywords: ['會員', '集點', '電話', '號碼', '統編', 'member', 'points', 'phone'],
     options: [
       { labels: { 'zh-TW': '沒有會員', 'en-US': 'No Membership' }, subLabels: { 'zh-TW': '不用集點', 'en-US': 'Skip points' }, tts: '沒有會員，謝謝' },
-      { labels: { 'zh-TW': '有，掃條碼', 'en-US': 'Yes, scan barcode' }, subLabels: { 'zh-TW': '出示手機會員', 'en-US': 'Show member app' }, tts: '有會員，請幫我掃條碼' },
+      { labels: { 'zh-TW': '有，掃條碼', 'en-US': 'Yes, scan barcode' }, subLabels: { 'zh-TW': '出示手機會員', 'en-US': 'Show member app' }, tts: '有會員，請幫我掃條碼', showBarcode: true },
       { labels: { 'zh-TW': '我打字輸入電話', 'en-US': 'Type Phone Number' }, subLabels: { 'zh-TW': '用鍵盤顯示電話', 'en-US': 'Show phone on screen' }, tts: '請看我螢幕上的電話號碼', kind: 'type' },
     ],
   },
@@ -348,7 +371,7 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '有載具嗎？', 'en-US': 'Do you have a receipt carrier?' },
     keywords: ['載具', '條碼', '手機條碼', '雲端發票', 'carrier', 'barcode'],
     options: [
-      { labels: { 'zh-TW': '手機條碼', 'en-US': 'Phone Barcode' }, subLabels: { 'zh-TW': '存入手機載具', 'en-US': 'Scan carrier barcode' }, tts: '有載具，請掃手機條碼' },
+      { labels: { 'zh-TW': '手機條碼', 'en-US': 'Phone Barcode' }, subLabels: { 'zh-TW': '顯示載具條碼給店員掃', 'en-US': 'Show carrier barcode on top screen' }, tts: '有載具，請掃手機條碼', showBarcode: true },
       { labels: { 'zh-TW': '紙本發票', 'en-US': 'Paper Receipt' }, subLabels: { 'zh-TW': '直接印出來', 'en-US': 'Print paper receipt' }, tts: '沒有載具，請印紙本發票' },
       { labels: { 'zh-TW': '不用', 'en-US': 'No need' }, subLabels: { 'zh-TW': '不用載具', 'en-US': 'No carrier' }, tts: '不用載具，謝謝' },
     ],
@@ -361,7 +384,7 @@ const DEFAULT_CARDS_DATA = [
     keywords: ['發票', '要印嗎', '印發票', '明細', '統編', 'receipt', 'print'],
     options: [
       { labels: { 'zh-TW': '要印發票', 'en-US': 'Print Receipt' }, subLabels: { 'zh-TW': '紙本發票', 'en-US': 'Yes, print it' }, tts: '發票要印，謝謝' },
-      { labels: { 'zh-TW': '不用印，存載具', 'en-US': 'Save to Carrier' }, subLabels: { 'zh-TW': '掃手機條碼', 'en-US': 'No print, scan barcode' }, tts: '發票不用印，請幫我存載具' },
+      { labels: { 'zh-TW': '不用印，存載具', 'en-US': 'Save to Carrier' }, subLabels: { 'zh-TW': '顯示手機條碼', 'en-US': 'No print, scan barcode' }, tts: '發票不用印，請幫我存載具', showBarcode: true },
       { labels: { 'zh-TW': '捐發票 / 不用', 'en-US': 'Donate / No Need' }, subLabels: { 'zh-TW': '不拿紙本發票', 'en-US': 'No paper receipt' }, tts: '發票不用印，謝謝' },
     ],
   },
@@ -392,8 +415,19 @@ const DEFAULT_CARDS_DATA = [
 
 const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'del'] as const;
 
+// 📊Deterministic Visual Code-39 Barcode Bars for E-Invoice Carrier (手機條碼)
+const BARCODE_WEIGHTS = [
+  3, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2, 1, 3, 2, 1, 1, 3, 1, 2, 2, 1, 3, 1, 2, 1, 1, 3, 2, 1, 3,
+];
+
 export const CounterConversationScreen: React.FC = () => {
+  // Keep phone screen awake while using the app at a checkout counter
+  useKeepAwake();
+
   const insets = useSafeAreaInsets();
+
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>('dark');
+  const THEME = THEMES[themeMode];
 
   const [currentLang, setCurrentLang] = useState<SupportedLang>('zh-TW');
   const [isTranslateMode, setIsTranslateMode] = useState(false);
@@ -406,6 +440,9 @@ export const CounterConversationScreen: React.FC = () => {
 
   const [customWallpapers, setCustomWallpapers] = useState<Record<string, string>>({});
   const [wallpaperInputUrl, setWallpaperInputUrl] = useState('');
+  const [carrierCode, setCarrierCode] = useState('/ABC1234');
+  const [showClerkBarcode, setShowClerkBarcode] = useState(false);
+  const [cloudSynced, setCloudSynced] = useState(false);
 
   // Counter Stage States
   const [clerkMessage, setClerkMessage] = useState('');
@@ -451,26 +488,88 @@ export const CounterConversationScreen: React.FC = () => {
 
   const webRecRef = useRef<any>(null);
 
-  // 💾 PERSISTENCE STORAGE LOADER
+  const triggerHaptic = (pattern: number | number[] = 60) => {
+    if (Platform.OS !== 'web') {
+      try {
+        Vibration.vibrate(pattern);
+      } catch (e) {}
+    }
+  };
+
+  // ☁️ PUSH UPDATES TO RENDER CLOUD BACKEND SO ALL DEVICES/WEBSITES UPDATE
+  const pushToCloud = async (payload: {
+    venues?: any[];
+    cards?: any[];
+    wallpapers?: Record<string, string>;
+    carrierCode?: string;
+  }) => {
+    try {
+      const res = await fetch(CLOUD_SYNC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) setCloudSynced(true);
+    } catch (e) {
+      // Offline / local fallback remains intact
+    }
+  };
+
+  // ☁️ PULL LATEST STATE FROM RENDER CLOUD BACKEND
+  const pullFromCloud = async () => {
+    try {
+      const res = await fetch(CLOUD_SYNC_URL);
+      if (!res.ok) return;
+      const data = await res.json();
+      setCloudSynced(true);
+
+      if (Array.isArray(data?.venues) && data.venues.length > 0) {
+        setVenues(data.venues);
+        setActiveVenue((prev) => data.venues.find((v: any) => v.id === prev.id) || data.venues[0]);
+        if (Platform.OS === 'web') {
+          localStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(data.venues));
+        } else {
+          await AsyncStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(data.venues));
+        }
+      }
+      if (Array.isArray(data?.cards) && data.cards.length > 0) {
+        setCardsData(data.cards);
+        if (Platform.OS === 'web') {
+          localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(data.cards));
+        } else {
+          await AsyncStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(data.cards));
+        }
+      }
+      if (data?.wallpapers && Object.keys(data.wallpapers).length > 0) {
+        setCustomWallpapers((prev) => {
+          const merged = { ...prev, ...data.wallpapers };
+          if (Platform.OS === 'web') {
+            localStorage.setItem(STORAGE_KEYS.WALLPAPERS, JSON.stringify(merged));
+          } else {
+            AsyncStorage.setItem(STORAGE_KEYS.WALLPAPERS, JSON.stringify(merged));
+          }
+          return merged;
+        });
+      }
+      if (data?.carrierCode) {
+        setCarrierCode(data.carrierCode);
+      }
+    } catch (e) {}
+  };
+
+  // 💾 PERSISTENCE STORAGE LOADER + CLOUD SYNC POLLING
   useEffect(() => {
     const loadSavedData = async () => {
       try {
-        let savedVenues = null;
-        let savedCards = null;
-        let savedWallpapers = null;
-        let savedScale = null;
+        const getItem = async (key: string) =>
+          Platform.OS === 'web' ? localStorage.getItem(key) : await AsyncStorage.getItem(key);
 
-        if (Platform.OS === 'web') {
-          savedVenues = localStorage.getItem(STORAGE_KEYS.VENUES);
-          savedCards = localStorage.getItem(STORAGE_KEYS.CARDS);
-          savedWallpapers = localStorage.getItem(STORAGE_KEYS.WALLPAPERS);
-          savedScale = localStorage.getItem(STORAGE_KEYS.FONT_SCALE);
-        } else {
-          savedVenues = await AsyncStorage.getItem(STORAGE_KEYS.VENUES);
-          savedCards = await AsyncStorage.getItem(STORAGE_KEYS.CARDS);
-          savedWallpapers = await AsyncStorage.getItem(STORAGE_KEYS.WALLPAPERS);
-          savedScale = await AsyncStorage.getItem(STORAGE_KEYS.FONT_SCALE);
-        }
+        const savedVenues = await getItem(STORAGE_KEYS.VENUES);
+        const savedCards = await getItem(STORAGE_KEYS.CARDS);
+        const savedWallpapers = await getItem(STORAGE_KEYS.WALLPAPERS);
+        const savedScale = await getItem(STORAGE_KEYS.FONT_SCALE);
+        const savedTheme = await getItem(STORAGE_KEYS.THEME_MODE);
+        const savedCarrier = await getItem(STORAGE_KEYS.CARRIER_CODE);
 
         if (savedVenues) {
           const parsed = JSON.parse(savedVenues);
@@ -492,11 +591,23 @@ export const CounterConversationScreen: React.FC = () => {
             setFontScale(numScale);
           }
         }
+        if (savedTheme === 'light' || savedTheme === 'dark') {
+          setThemeMode(savedTheme);
+        }
+        if (savedCarrier) {
+          setCarrierCode(savedCarrier);
+        }
       } catch (e) {
         console.error('Error loading stored configurations:', e);
       }
+
+      // Immediately pull shared changes from Render cloud server
+      await pullFromCloud();
     };
+
     loadSavedData();
+    const syncTimer = setInterval(pullFromCloud, 12000);
+    return () => clearInterval(syncTimer);
   }, []);
 
   const showToast = (msg: string) => {
@@ -504,6 +615,31 @@ export const CounterConversationScreen: React.FC = () => {
     setTimeout(() => {
       setSaveToastMsg('');
     }, 3500);
+  };
+
+  const toggleThemeMode = async () => {
+    const next = themeMode === 'dark' ? 'light' : 'dark';
+    setThemeMode(next);
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.setItem(STORAGE_KEYS.THEME_MODE, next);
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEYS.THEME_MODE, next);
+      }
+    } catch (e) {}
+  };
+
+  const persistCarrierCode = async (code: string) => {
+    const formatted = code.trim().startsWith('/') ? code.trim().toUpperCase() : `/${code.trim().toUpperCase()}`;
+    setCarrierCode(formatted);
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.setItem(STORAGE_KEYS.CARRIER_CODE, formatted);
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEYS.CARRIER_CODE, formatted);
+      }
+    } catch (e) {}
+    pushToCloud({ carrierCode: formatted });
   };
 
   const persistFontScale = async (val: number) => {
@@ -526,6 +662,7 @@ export const CounterConversationScreen: React.FC = () => {
         await AsyncStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(updated));
       }
     } catch (e) {}
+    pushToCloud({ venues: updated });
   };
 
   const persistCards = async (updated: any[]) => {
@@ -537,9 +674,10 @@ export const CounterConversationScreen: React.FC = () => {
         await AsyncStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(updated));
       }
     } catch (e) {}
+    pushToCloud({ cards: updated });
   };
 
-  // 🗑️ DELETE ANY SITUATION (Only inside Settings -> Manage Situations)
+  // 🗑️ DELETE ANY SITUATION (Inside Settings -> Manage Situations)
   const handleDeleteVenue = async (venueId: string) => {
     if (venues.length <= 1) {
       Alert.alert(
@@ -573,19 +711,37 @@ export const CounterConversationScreen: React.FC = () => {
     showToast(currentLang === 'zh-TW' ? '已刪除此問題與回答' : 'Deleted custom Q&A');
   };
 
+  // 🖼️ SAVE WALLPAPER LOCALLY + SYNC TO CLOUD FOR ALL DEVICES
   const saveCustomWallpaper = async () => {
     if (!wallpaperInputUrl.trim()) return;
     const newUrl = wallpaperInputUrl.trim();
     const newWallpapers = { ...customWallpapers, [activeVenue.id]: newUrl };
     setCustomWallpapers(newWallpapers);
+
+    // Also update coverImage inside venues array so new visitors see it immediately
+    const updatedVenues = venues.map((v) =>
+      v.id === activeVenue.id ? { ...v, coverImage: newUrl } : v
+    );
+    setVenues(updatedVenues);
+    setActiveVenue((prev) => ({ ...prev, coverImage: newUrl }));
+
     try {
       if (Platform.OS === 'web') {
         localStorage.setItem(STORAGE_KEYS.WALLPAPERS, JSON.stringify(newWallpapers));
+        localStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(updatedVenues));
       } else {
         await AsyncStorage.setItem(STORAGE_KEYS.WALLPAPERS, JSON.stringify(newWallpapers));
+        await AsyncStorage.setItem(STORAGE_KEYS.VENUES, JSON.stringify(updatedVenues));
       }
     } catch (e) {}
+
+    await pushToCloud({ wallpapers: newWallpapers, venues: updatedVenues });
     setWallpaperInputUrl('');
+    showToast(
+      currentLang === 'zh-TW'
+        ? '✓ 封面圖片已更新並同步至所有裝置！'
+        : '✓ Wallpaper updated & synced across all devices!'
+    );
   };
 
   const getActiveCoverImage = () => customWallpapers[activeVenue.id] || activeVenue.coverImage;
@@ -606,14 +762,15 @@ export const CounterConversationScreen: React.FC = () => {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(cleanText);
       u.lang = lang;
+      u.rate = 0.95;
       window.speechSynthesis.speak(u);
     } else {
       Speech.stop();
-      Speech.speak(cleanText, { language: lang });
+      Speech.speak(cleanText, { language: lang, rate: 0.95 });
     }
   };
 
-  // 🧠 SMART LEARNING ENGINE: Saves new questions & answers for future suggestion
+  // 🧠 SMART LEARNING ENGINE: Saves new questions & answers for future suggestion + Cloud Sync
   const learnNewConversationExchange = async (promptHeard: string, userReplyText: string) => {
     const cleanQ = (promptHeard || '').replace(/\.\.\.$/, '').trim();
     const cleanA = (userReplyText || '').trim();
@@ -766,6 +923,7 @@ export const CounterConversationScreen: React.FC = () => {
     });
 
     if (matchedCard && isFinal) {
+      triggerHaptic([0, 40, 60, 40]); // Crisp double-pulse when question card is matched
       openCardStage(matchedCard);
     }
 
@@ -775,6 +933,7 @@ export const CounterConversationScreen: React.FC = () => {
         activeVenue.name['zh-TW'] || getVenueShortName(activeVenue)
       );
       if (dynamicAiReplies && Array.isArray(dynamicAiReplies)) {
+        triggerHaptic([0, 40, 60, 40]);
         dynamicAiReplies.forEach((r, idx) => {
           triggeredReplies.push({
             id: `gemini_auto_${idx}`,
@@ -953,6 +1112,7 @@ export const CounterConversationScreen: React.FC = () => {
     const qText = card.question?.[currentLang] || card.question?.['zh-TW'] || '';
     setPendingAmount(null);
     setAmountConfirmed(undefined);
+    setShowClerkBarcode(false);
     setActivePromptCard(card);
     setChosenOption(null);
     setClerkLabel(currentLang === 'zh-TW' ? '我正在看您的問題' : 'Reading your question');
@@ -964,6 +1124,7 @@ export const CounterConversationScreen: React.FC = () => {
     setIsClerkPickOpen(false);
     setClerkPickView('grid');
     setClerkDigits('');
+    triggerHaptic([0, 40, 60, 40]);
     openCardStage(card);
   };
 
@@ -973,14 +1134,17 @@ export const CounterConversationScreen: React.FC = () => {
     setClerkDigits('');
     setActivePromptCard(null);
     setChosenOption(null);
+    setShowClerkBarcode(false);
     setPendingAmount(val);
     setAmountConfirmed(undefined);
+    triggerHaptic([0, 40, 60, 40]);
     setClerkLabel(currentLang === 'zh-TW' ? '您輸入的金額' : 'Entered Amount');
     setClerkMessage(`NT$ ${val.toLocaleString('zh-TW')} 元`);
     setClerkSub(currentLang === 'zh-TW' ? '等待客人確認中...' : 'Waiting for confirmation...');
   };
 
   const handleConfirmAmount = (ok: boolean) => {
+    triggerHaptic(80);
     setAmountConfirmed(ok);
     if (ok && pendingAmount !== null) {
       const msg = `✓ NT$ ${pendingAmount.toLocaleString('zh-TW')} 元`;
@@ -1003,10 +1167,32 @@ export const CounterConversationScreen: React.FC = () => {
       setIsTypeToClerkOpen(true);
       return;
     }
+
+    triggerHaptic(80); // Firm pulse confirming 180° clerk screen flipped
+    const shouldShowBarcode =
+      Boolean(optObj?.showBarcode) ||
+      /手機條碼|載具|掃條碼/.test(displayToClerk) ||
+      /手機條碼|Phone Barcode/.test(reply.text || '');
+
+    setShowClerkBarcode(shouldShowBarcode);
     setChosenOption(optObj || reply);
-    setClerkLabel(currentLang === 'zh-TW' ? '我的回答' : 'My Answer');
+    setClerkLabel(
+      shouldShowBarcode
+        ? currentLang === 'zh-TW'
+          ? '請掃描手機載具條碼'
+          : 'Please Scan E-Invoice Carrier'
+        : currentLang === 'zh-TW'
+        ? '我的回答'
+        : 'My Answer'
+    );
     setClerkMessage(displayToClerk);
-    setClerkSub(currentLang === 'zh-TW' ? '請直接對手機說話，或點選問題' : 'Speak to phone or tap a question');
+    setClerkSub(
+      shouldShowBarcode
+        ? `載具號碼：${carrierCode}`
+        : currentLang === 'zh-TW'
+        ? '請直接對手機說話，或點選問題'
+        : 'Speak to phone or tap a question'
+    );
     speakSentence(displayToClerk, 'zh-TW');
     setSmartReplies([]);
 
@@ -1027,6 +1213,7 @@ export const CounterConversationScreen: React.FC = () => {
     setChosenOption(null);
     setPendingAmount(null);
     setAmountConfirmed(undefined);
+    setShowClerkBarcode(false);
     setClerkLabel('');
     setClerkMessage('');
     setClerkSub('');
@@ -1088,7 +1275,7 @@ export const CounterConversationScreen: React.FC = () => {
     return 'other';
   };
 
-  // 🎯 MULTI-SAMPLE HIGH-PRECISION GPS ACQUISITION (Waits for sharpest <12m lock instead of coarse first reading)
+  // 🎯 MULTI-SAMPLE HIGH-PRECISION GPS ACQUISITION
   const acquireBestGpsFix = async (): Promise<{
     latitude: number;
     longitude: number;
@@ -1119,7 +1306,6 @@ export const CounterConversationScreen: React.FC = () => {
             if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
               bestPos = pos;
             }
-            // If we locked onto an exact < 12m satellite fix, resolve immediately!
             if (pos.coords.accuracy <= 12) {
               clearTimeout(timer);
               finish();
@@ -1200,7 +1386,7 @@ export const CounterConversationScreen: React.FC = () => {
     }
   };
 
-  // 🛰️ EXACT PLACE NAME & BUILDING DETECTOR (Prioritizes real place/store/campus/building names over generic street numbers)
+  // 🛰️ EXACT PLACE NAME & BUILDING DETECTOR
   const scanLiveLocation = async () => {
     setIsAutoDetecting(true);
     setNearbyVenueFound(null);
@@ -1213,7 +1399,6 @@ export const CounterConversationScreen: React.FC = () => {
       const poiCandidates: Array<{ label: string; type: string; isPoi: boolean }> = [];
       let formattedStreet = '';
 
-      // 1. Query Nominatim at Zoom 18 (Building / Shop / Amenity level) AND Zoom 16 (Campus / Landmark level)
       try {
         const nomRes = await fetch(
           `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=zh-TW`,
@@ -1222,7 +1407,6 @@ export const CounterConversationScreen: React.FC = () => {
         const nomData = await nomRes.json();
         const addr = nomData?.address || {};
 
-        // Extract exact Named Place / Building / Campus / Shop from Nominatim
         const namedParts = [
           nomData?.name,
           addr.shop,
@@ -1237,7 +1421,6 @@ export const CounterConversationScreen: React.FC = () => {
         ].filter(Boolean);
 
         namedParts.forEach((pName) => {
-          // Skip if the name is just a road name or a raw number
           if (pName && pName !== addr.road && !/^\d+號?$/.test(pName)) {
             if (!poiCandidates.some((c) => c.label === pName)) {
               poiCandidates.push({
@@ -1249,7 +1432,6 @@ export const CounterConversationScreen: React.FC = () => {
           }
         });
 
-        // Cleanly format exact street address without duplicate "號號"
         const district = addr.suburb || addr.city_district || addr.town || addr.city || '';
         const road = addr.road || addr.pedestrian || addr.neighbourhood || '';
         const rawHouse = (addr.house_number || '').trim();
@@ -1262,7 +1444,6 @@ export const CounterConversationScreen: React.FC = () => {
         formattedStreet = [district, road, cleanHouse].filter(Boolean).join('');
       } catch (nomErr) {}
 
-      // 2. Query Overpass OSM for exact enclosing building/campus (`is_in`) AND closest named nodes/ways within 45m
       try {
         const query = `[out:json][timeout:6];
           is_in(${latitude},${longitude})->.a;
@@ -1283,7 +1464,6 @@ export const CounterConversationScreen: React.FC = () => {
           const scored = data.elements
             .filter((el: any) => {
               const t = el.tags || {};
-              // Ignore roads/highways/bus stops so we only get real places, shops, and buildings
               if (t.highway || t.public_transport || t.railway || t.boundary === 'administrative') {
                 return false;
               }
@@ -1302,7 +1482,6 @@ export const CounterConversationScreen: React.FC = () => {
                 fullLabel,
                 t.amenity || t.shop || t.building || ''
               );
-              // Prioritize shops/amenities/buildings right at the user's coordinates
               const isShopOrBuilding = Boolean(t.shop || t.amenity || t.building);
               const priorityScore = isShopOrBuilding ? distMeters : distMeters + 15;
               return { label: fullLabel, type: cat, score: priorityScore, distMeters };
@@ -1327,7 +1506,6 @@ export const CounterConversationScreen: React.FC = () => {
         console.warn('Overpass lookup warning:', osmErr);
       }
 
-      // 3. Native OS Geocode POI Name Fallback (Android / iOS)
       if (Platform.OS !== 'web') {
         try {
           const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
@@ -1357,7 +1535,6 @@ export const CounterConversationScreen: React.FC = () => {
         } catch (e) {}
       }
 
-      // 4. Append exact street address at the end as an option if needed
       if (formattedStreet && !poiCandidates.some((c) => c.label === formattedStreet)) {
         poiCandidates.push({
           label: formattedStreet,
@@ -1374,7 +1551,6 @@ export const CounterConversationScreen: React.FC = () => {
         });
       }
 
-      // Pick the first real POI/Place Name (or street address only if no POI name exists)
       const bestMatch = poiCandidates.find((c) => c.isPoi) || poiCandidates[0];
 
       setDetectedCandidates(poiCandidates);
@@ -1405,7 +1581,7 @@ export const CounterConversationScreen: React.FC = () => {
     }
   };
 
-  // 💾 SAVE EDITED LOCATION NAME AS SITUATION
+  // 💾 SAVE EDITED LOCATION NAME AS SITUATION + CLOUD SYNC
   const handleSaveEditedLocationAsSituation = async () => {
     const finalNameZh = editablePlaceName.trim();
     if (!finalNameZh) {
@@ -1450,8 +1626,8 @@ export const CounterConversationScreen: React.FC = () => {
     setNearbyVenueFound(null);
     showToast(
       currentLang === 'zh-TW'
-        ? `✓ 已儲存並切換至「${finalNameZh}」`
-        : `✓ Saved & switched to "${finalNameZh}"`
+        ? `✓ 已儲存並同步至雲端：「${finalNameZh}」`
+        : `✓ Saved & synced to cloud: "${finalNameZh}"`
     );
   };
 
@@ -1464,6 +1640,8 @@ export const CounterConversationScreen: React.FC = () => {
         finalSpeech = await realTranslate(finalSpeech, 'en-US', 'zh-TW');
         speechLang = 'zh-TW';
       }
+      triggerHaptic(80);
+      setShowClerkBarcode(false);
       setClerkLabel(currentLang === 'zh-TW' ? '我打字跟您說' : 'Typed Message');
       setClerkMessage(finalSpeech);
       setClerkSub(currentLang === 'zh-TW' ? '請直接對手機說話，或點選問題' : 'Please speak or tap a question');
@@ -1501,23 +1679,30 @@ export const CounterConversationScreen: React.FC = () => {
   const fs = (base: number) => Math.round(base * fontScale);
 
   // ============================================================================
-  // 🏠 HOME SCREEN (Clean UI — No Delete Baskets or Red X Marks Outside Settings)
+  // 🏠 HOME SCREEN (Clean UI + Dark/Light Theme + Cloud Sync)
   // ============================================================================
   if (!isCounterMode) {
     return (
       <View
         style={[
           styles.screen,
-          { paddingTop: insets.top, paddingBottom: insets.bottom },
+          {
+            backgroundColor: THEME.bg,
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom,
+          },
         ]}
       >
         {/* Top Navigation — Branded as 看得見的對話 / Mochi */}
         <View style={styles.homeHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontSize: fs(20) }}>💬</Text>
-            <Text style={[styles.homeTitleLogo, { fontSize: fs(20) }]}>
+            <Text style={[styles.homeTitleLogo, { color: THEME.text, fontSize: fs(20) }]}>
               {currentLang === 'zh-TW' ? '看得見的對話' : 'Mochi'}
             </Text>
+            {cloudSynced && (
+              <View style={styles.cloudDotBadge} title="Cloud Synced" />
+            )}
           </View>
 
           <View style={styles.topRightControls}>
@@ -1525,21 +1710,35 @@ export const CounterConversationScreen: React.FC = () => {
               onPress={scanLiveLocation}
               style={[
                 styles.iconBtn,
+                { backgroundColor: THEME.surface, borderColor: THEME.border },
                 nearbyVenueFound && { borderColor: THEME.success },
               ]}
             >
               {isAutoDetecting ? (
                 <ActivityIndicator size="small" color={THEME.orange} />
               ) : (
-                <Text style={[styles.iconText, { fontSize: fs(16) }]}>
+                <Text style={[styles.iconText, { color: THEME.text, fontSize: fs(15) }]}>
                   🛰️ {currentLang === 'zh-TW' ? '定位' : 'GPS'}
                 </Text>
               )}
             </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={toggleThemeMode}
+              style={[
+                styles.iconBtn,
+                { backgroundColor: THEME.surface, borderColor: THEME.border },
+              ]}
+              accessibilityLabel="切換深色或淺色主題"
+            >
+              <Text style={{ fontSize: fs(16) }}>{themeMode === 'dark' ? '☀️' : '🌙'}</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               onPress={() => setIsTranslateMode(!isTranslateMode)}
               style={[
                 styles.iconBtn,
+                { backgroundColor: THEME.surface, borderColor: THEME.border },
                 isTranslateMode && {
                   backgroundColor: 'rgba(10, 132, 255, 0.2)',
                   borderColor: THEME.translateAccent,
@@ -1549,15 +1748,22 @@ export const CounterConversationScreen: React.FC = () => {
               <Text
                 style={[
                   styles.iconText,
-                  { fontSize: fs(15) },
+                  { color: THEME.text, fontSize: fs(15) },
                   isTranslateMode && { color: THEME.translateAccent, fontWeight: '700' },
                 ]}
               >
                 A/文
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsSettingsOpen(true)} style={styles.iconBtn}>
-              <Text style={[styles.iconText, { fontSize: fs(18) }]}>⚙️</Text>
+
+            <TouchableOpacity
+              onPress={() => setIsSettingsOpen(true)}
+              style={[
+                styles.iconBtn,
+                { backgroundColor: THEME.surface, borderColor: THEME.border },
+              ]}
+            >
+              <Text style={[styles.iconText, { color: THEME.text, fontSize: fs(18) }]}>⚙️</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1574,7 +1780,12 @@ export const CounterConversationScreen: React.FC = () => {
         {/* 🛰️ PRECISE PLACE NAME DETECTOR & EDITABLE SITUATION CREATOR */}
         {nearbyVenueFound && (
           <View style={styles.satelliteDropdownContainer}>
-            <View style={styles.satelliteEditorCard}>
+            <View
+              style={[
+                styles.satelliteEditorCard,
+                { backgroundColor: THEME.surface, borderColor: THEME.success },
+              ]}
+            >
               <View
                 style={{
                   flexDirection: 'row',
@@ -1603,7 +1814,10 @@ export const CounterConversationScreen: React.FC = () => {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   {!nearbyVenueFound.manualOnly && (
                     <TouchableOpacity
-                      style={styles.rescanSmallBtn}
+                      style={[
+                        styles.rescanSmallBtn,
+                        { backgroundColor: THEME.surfaceLight, borderColor: THEME.orange },
+                      ]}
                       onPress={scanLiveLocation}
                     >
                       <Text style={{ color: THEME.orange, fontSize: fs(12), fontWeight: '700' }}>
@@ -1620,7 +1834,6 @@ export const CounterConversationScreen: React.FC = () => {
                 </View>
               </View>
 
-              {/* Warn user if desktop browser is using coarse ISP/Wi-Fi IP location (> 150m accuracy) */}
               {nearbyVenueFound.accuracy && nearbyVenueFound.accuracy > 150 && (
                 <Text style={{ color: THEME.orange, fontSize: fs(12), marginBottom: 6 }}>
                   ⚠️{' '}
@@ -1630,7 +1843,6 @@ export const CounterConversationScreen: React.FC = () => {
                 </Text>
               )}
 
-              {/* Clickable Nearby Place Names & Exact Address Candidates */}
               {detectedCandidates.length > 0 && (
                 <ScrollView
                   horizontal
@@ -1643,6 +1855,7 @@ export const CounterConversationScreen: React.FC = () => {
                       key={idx}
                       style={[
                         styles.candidateChip,
+                        { backgroundColor: THEME.surfaceLight, borderColor: THEME.border },
                         editablePlaceName === cand.label && styles.candidateChipActive,
                       ]}
                       onPress={() => {
@@ -1653,7 +1866,7 @@ export const CounterConversationScreen: React.FC = () => {
                       <Text
                         style={[
                           styles.candidateChipText,
-                          { fontSize: fs(13) },
+                          { color: THEME.text, fontSize: fs(13) },
                           editablePlaceName === cand.label && {
                             color: '#000',
                             fontWeight: '800',
@@ -1668,9 +1881,16 @@ export const CounterConversationScreen: React.FC = () => {
                 </ScrollView>
               )}
 
-              {/* Editable Place Name Input */}
               <TextInput
-                style={[styles.editableLocationInput, { fontSize: fs(16) }]}
+                style={[
+                  styles.editableLocationInput,
+                  {
+                    backgroundColor: THEME.bg,
+                    color: THEME.text,
+                    borderColor: THEME.border,
+                    fontSize: fs(16),
+                  },
+                ]}
                 value={editablePlaceName}
                 onChangeText={setEditablePlaceName}
                 placeholder={
@@ -1681,14 +1901,7 @@ export const CounterConversationScreen: React.FC = () => {
                 placeholderTextColor={THEME.textMuted}
               />
 
-              {/* Category Template Picker */}
-              <Text
-                style={{
-                  color: THEME.textMuted,
-                  fontSize: fs(12),
-                  marginBottom: 6,
-                }}
-              >
+              <Text style={{ color: THEME.textMuted, fontSize: fs(12), marginBottom: 6 }}>
                 {currentLang === 'zh-TW'
                   ? '選擇問題模板類型：'
                   : 'Select question template type:'}
@@ -1704,6 +1917,7 @@ export const CounterConversationScreen: React.FC = () => {
                     key={tpl.id}
                     style={[
                       styles.templateTypeChip,
+                      { backgroundColor: THEME.bg, borderColor: THEME.border },
                       selectedBaseType === tpl.id && styles.templateTypeChipActive,
                     ]}
                     onPress={() => setSelectedBaseType(tpl.id)}
@@ -1711,7 +1925,7 @@ export const CounterConversationScreen: React.FC = () => {
                     <Text
                       style={[
                         styles.templateTypeChipText,
-                        { fontSize: fs(13) },
+                        { color: THEME.text, fontSize: fs(13) },
                         selectedBaseType === tpl.id && {
                           color: '#000',
                           fontWeight: '800',
@@ -1744,21 +1958,31 @@ export const CounterConversationScreen: React.FC = () => {
           contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View style={styles.greetingSection}>
-            <Text style={[styles.greetingTitle, { fontSize: fs(28) }]}>
+            <Text style={[styles.greetingTitle, { color: THEME.text, fontSize: fs(28) }]}>
               {currentLang === 'zh-TW' ? '準備好開始對話' : 'Ready to Communicate'}
             </Text>
-            <Text style={[styles.greetingSub, { fontSize: fs(15) }]}>
+            <Text style={[styles.greetingSub, { color: THEME.textMuted, fontSize: fs(15) }]}>
               {currentLang === 'zh-TW'
                 ? '選擇當前場景，快速雙向溝通：'
                 : 'Select a situation for instant two-way dialog:'}
             </Text>
           </View>
 
-          {/* Clean Hero Card (No Delete Basket Button Here) */}
-          <View style={styles.heroCard}>
+          {/* Clean Hero Card */}
+          <View
+            style={[
+              styles.heroCard,
+              { backgroundColor: THEME.surface, borderColor: THEME.border },
+            ]}
+          >
             <Image source={{ uri: getActiveCoverImage() }} style={styles.heroImageCentered} />
             <View style={styles.heroContent}>
-              <Text style={[styles.heroTitle, { fontSize: fs(23), marginBottom: 14 }]}>
+              <Text
+                style={[
+                  styles.heroTitle,
+                  { color: THEME.text, fontSize: fs(23), marginBottom: 14 },
+                ]}
+              >
                 {activeVenue.emoji}{' '}
                 {activeVenue.name[currentLang] || activeVenue.name['zh-TW']}
               </Text>
@@ -1774,7 +1998,7 @@ export const CounterConversationScreen: React.FC = () => {
                   {currentLang === 'zh-TW' ? '開始櫃檯模式' : 'Start Counter Mode'}
                 </Text>
               </TouchableOpacity>
-              <Text style={[styles.heroHint, { fontSize: fs(13) }]}>
+              <Text style={[styles.heroHint, { color: THEME.textMuted, fontSize: fs(13) }]}>
                 {currentLang === 'zh-TW'
                   ? '手機平放在櫃檯上，上半部自動翻轉 180° 朝向店員。'
                   : 'Place flat on counter; top half flips 180° toward clerk.'}
@@ -1782,7 +2006,7 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Clean All Situations Carousel (No Red X Marks Outside) */}
+          {/* Clean All Situations Carousel */}
           <View style={styles.carouselSection}>
             <View
               style={{
@@ -1793,7 +2017,12 @@ export const CounterConversationScreen: React.FC = () => {
                 marginBottom: 12,
               }}
             >
-              <Text style={[styles.carouselTitle, { fontSize: fs(17), marginBottom: 0 }]}>
+              <Text
+                style={[
+                  styles.carouselTitle,
+                  { color: THEME.text, fontSize: fs(17), marginBottom: 0 },
+                ]}
+              >
                 {currentLang === 'zh-TW' ? '切換所有場景' : 'All Situations'}
               </Text>
               <TouchableOpacity
@@ -1831,7 +2060,7 @@ export const CounterConversationScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.carouselItemText,
-                      { fontSize: fs(13) },
+                      { color: THEME.textMuted, fontSize: fs(13) },
                       activeVenue.id === v.id && {
                         color: THEME.orange,
                         fontWeight: 'bold',
@@ -1847,11 +2076,11 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         </ScrollView>
 
-        {/* Modal: Flexible Settings + Manage Situations (Delete kept cleanly inside Settings) */}
+        {/* Modal: Flexible Settings + Theme + Cloud Wallpaper + Carrier Barcode + Manage Situations */}
         <Modal visible={isSettingsOpen} transparent animationType="fade">
           <View style={styles.modalBackdrop}>
             <ScrollView
-              style={styles.settingsModalCardFull}
+              style={[styles.settingsModalCardFull, { backgroundColor: THEME.bg }]}
               contentContainerStyle={{ padding: 24 }}
               showsVerticalScrollIndicator={false}
             >
@@ -1859,13 +2088,80 @@ export const CounterConversationScreen: React.FC = () => {
                 <TouchableOpacity onPress={() => setIsSettingsOpen(false)}>
                   <Text style={{ color: THEME.text, fontSize: fs(26) }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.settingsModalTitle, { fontSize: fs(22) }]}>
+                <Text
+                  style={[styles.settingsModalTitle, { color: THEME.text, fontSize: fs(22) }]}
+                >
                   {currentLang === 'zh-TW' ? '設定與場景管理' : 'Settings & Situations'}
                 </Text>
                 <View style={{ width: 24 }} />
               </View>
 
-              <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
+              {/* Theme Toggle Section */}
+              <Text
+                style={[styles.settingsSectionTitle, { color: THEME.text, fontSize: fs(18) }]}
+              >
+                {currentLang === 'zh-TW' ? '深色 / 淺色主題 (Theme)' : 'Appearance Theme'}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.fontBtn,
+                    {
+                      flex: 1,
+                      backgroundColor: THEME.surface,
+                      borderColor: THEME.border,
+                    },
+                    themeMode === 'dark' && {
+                      backgroundColor: THEME.orange,
+                      borderColor: THEME.orange,
+                    },
+                  ]}
+                  onPress={() => themeMode !== 'dark' && toggleThemeMode()}
+                >
+                  <Text
+                    style={[
+                      styles.fontBtnText,
+                      { color: THEME.text, fontSize: fs(15) },
+                      themeMode === 'dark' && { color: '#000', fontWeight: '800' },
+                    ]}
+                  >
+                    🌙 {currentLang === 'zh-TW' ? '深色模式 (Dark)' : 'Dark Mode'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.fontBtn,
+                    {
+                      flex: 1,
+                      backgroundColor: THEME.surface,
+                      borderColor: THEME.border,
+                    },
+                    themeMode === 'light' && {
+                      backgroundColor: THEME.orange,
+                      borderColor: THEME.orange,
+                    },
+                  ]}
+                  onPress={() => themeMode !== 'light' && toggleThemeMode()}
+                >
+                  <Text
+                    style={[
+                      styles.fontBtnText,
+                      { color: THEME.text, fontSize: fs(15) },
+                      themeMode === 'light' && { color: '#000', fontWeight: '800' },
+                    ]}
+                  >
+                    ☀️ {currentLang === 'zh-TW' ? '淺色模式 (Light)' : 'Light Mode'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={[styles.settingsDivider, { backgroundColor: THEME.border }]} />
+
+              {/* Font Scale Section */}
+              <Text
+                style={[styles.settingsSectionTitle, { color: THEME.text, fontSize: fs(18) }]}
+              >
                 {currentLang === 'zh-TW'
                   ? '字體與按鈕大小 (全畫面即時縮放)'
                   : 'Font & UI Scale (Global)'}
@@ -1876,6 +2172,7 @@ export const CounterConversationScreen: React.FC = () => {
                     key={f.label}
                     style={[
                       styles.fontBtn,
+                      { backgroundColor: THEME.surface, borderColor: THEME.border },
                       fontScale === f.val && {
                         backgroundColor: THEME.orange,
                         borderColor: THEME.orange,
@@ -1886,7 +2183,7 @@ export const CounterConversationScreen: React.FC = () => {
                     <Text
                       style={[
                         styles.fontBtnText,
-                        { fontSize: fs(15) },
+                        { color: THEME.text, fontSize: fs(15) },
                         fontScale === f.val && { color: '#000', fontWeight: '800' },
                       ]}
                     >
@@ -1896,13 +2193,89 @@ export const CounterConversationScreen: React.FC = () => {
                 ))}
               </View>
 
-              <View style={styles.settingsDivider} />
+              <View style={[styles.settingsDivider, { backgroundColor: THEME.border }]} />
 
-              <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
+              {/* E-Invoice Carrier Code Setting */}
+              <Text
+                style={[styles.settingsSectionTitle, { color: THEME.text, fontSize: fs(18) }]}
+              >
+                {currentLang === 'zh-TW'
+                  ? '手機載具條碼設定 (E-Invoice Carrier)'
+                  : 'E-Invoice Carrier Barcode'}
+              </Text>
+              <Text style={{ color: THEME.textMuted, fontSize: fs(13), marginBottom: 8 }}>
+                {currentLang === 'zh-TW'
+                  ? '當您在櫃檯點選「手機條碼」時，店員端 180° 畫面會自動顯示此條碼供掃描：'
+                  : 'Shown on the 180° clerk screen when you tap Phone Barcode:'}
+              </Text>
+              <TextInput
+                style={[
+                  styles.inputField,
+                  {
+                    backgroundColor: THEME.surface,
+                    color: THEME.text,
+                    borderColor: THEME.border,
+                    marginBottom: 8,
+                    fontSize: fs(16),
+                  },
+                ]}
+                placeholder="/ABC1234"
+                placeholderTextColor={THEME.textMuted}
+                value={carrierCode}
+                onChangeText={persistCarrierCode}
+                autoCapitalize="characters"
+              />
+
+              <View style={[styles.settingsDivider, { backgroundColor: THEME.border }]} />
+
+              {/* Custom Wallpaper URL (Cloud Synced) */}
+              <Text
+                style={[styles.settingsSectionTitle, { color: THEME.text, fontSize: fs(18) }]}
+              >
+                {currentLang === 'zh-TW'
+                  ? `自訂「${activeVenue.name['zh-TW']}」封面圖片 (全球同步)`
+                  : `Custom Wallpaper for ${activeVenue.name['en-US']} (Cloud Synced)`}
+              </Text>
+              <TextInput
+                style={[
+                  styles.inputField,
+                  {
+                    backgroundColor: THEME.surface,
+                    color: THEME.text,
+                    borderColor: THEME.border,
+                    marginBottom: 8,
+                    fontSize: fs(15),
+                  },
+                ]}
+                placeholder="https://images.unsplash.com/..."
+                placeholderTextColor={THEME.textMuted}
+                value={wallpaperInputUrl}
+                onChangeText={setWallpaperInputUrl}
+              />
+              <TouchableOpacity style={styles.sendBtn} onPress={saveCustomWallpaper}>
+                <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
+                  {currentLang === 'zh-TW'
+                    ? '☁️ 儲存並同步封面至所有網站/裝置'
+                    : '☁️ Save & Sync Wallpaper Globally'}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={[styles.settingsDivider, { backgroundColor: THEME.border }]} />
+
+              {/* Manage Situations (Delete Inside Settings Only) */}
+              <Text
+                style={[styles.settingsSectionTitle, { color: THEME.text, fontSize: fs(18) }]}
+              >
                 {currentLang === 'zh-TW' ? '管理所有場景 (Manage Situations)' : 'Manage Situations'}
               </Text>
               {venues.map((v) => (
-                <View key={v.id} style={styles.manageVenueRow}>
+                <View
+                  key={v.id}
+                  style={[
+                    styles.manageVenueRow,
+                    { backgroundColor: THEME.surface, borderColor: THEME.border },
+                  ]}
+                >
                   <Text style={{ color: THEME.text, fontSize: fs(16), flex: 1 }}>
                     {v.emoji} {v.name[currentLang] || v.name['zh-TW']}
                   </Text>
@@ -1919,17 +2292,24 @@ export const CounterConversationScreen: React.FC = () => {
                 </View>
               ))}
 
-              <View style={styles.settingsDivider} />
+              <View style={[styles.settingsDivider, { backgroundColor: THEME.border }]} />
 
-              <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
+              {/* Translation & Language */}
+              <Text
+                style={[styles.settingsSectionTitle, { color: THEME.text, fontSize: fs(18) }]}
+              >
                 {currentLang === 'zh-TW' ? '翻譯與語言' : 'Translation & Language'}
               </Text>
               <View style={styles.settingRow}>
-                <Text style={[styles.settingRowLabel, { fontSize: fs(16) }]}>
+                <Text style={[styles.settingRowLabel, { color: THEME.text, fontSize: fs(16) }]}>
                   {currentLang === 'zh-TW' ? 'A/文 即時雙語翻譯' : 'A/文 Live Translate Mode'}
                 </Text>
                 <TouchableOpacity
-                  style={[styles.toggleSwitch, isTranslateMode && styles.toggleSwitchActive]}
+                  style={[
+                    styles.toggleSwitch,
+                    { backgroundColor: THEME.surface, borderColor: THEME.border },
+                    isTranslateMode && styles.toggleSwitchActive,
+                  ]}
                   onPress={() => setIsTranslateMode(!isTranslateMode)}
                 >
                   <View
@@ -1943,6 +2323,7 @@ export const CounterConversationScreen: React.FC = () => {
                   key={lang.code}
                   style={[
                     styles.langOptionItem,
+                    { backgroundColor: THEME.surface },
                     currentLang === lang.code && { backgroundColor: THEME.surfaceLight },
                   ]}
                   onPress={() => setCurrentLang(lang.code as SupportedLang)}
@@ -1950,7 +2331,7 @@ export const CounterConversationScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.langOptionText,
-                      { fontSize: fs(16) },
+                      { color: THEME.text, fontSize: fs(16) },
                       currentLang === lang.code && { color: THEME.orange, fontWeight: 'bold' },
                     ]}
                   >
@@ -1963,24 +2344,6 @@ export const CounterConversationScreen: React.FC = () => {
                   )}
                 </TouchableOpacity>
               ))}
-
-              <View style={styles.settingsDivider} />
-
-              <Text style={[styles.settingsSectionTitle, { fontSize: fs(18) }]}>
-                {currentLang === 'zh-TW' ? '自訂場景圖片 (Wallpaper)' : 'Custom Wallpaper URL'}
-              </Text>
-              <TextInput
-                style={[styles.inputField, { marginBottom: 8, fontSize: fs(15) }]}
-                placeholder="https://..."
-                placeholderTextColor={THEME.textMuted}
-                value={wallpaperInputUrl}
-                onChangeText={setWallpaperInputUrl}
-              />
-              <TouchableOpacity style={styles.sendBtn} onPress={saveCustomWallpaper}>
-                <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
-                  {currentLang === 'zh-TW' ? '儲存封面圖片' : 'Save Wallpaper'}
-                </Text>
-              </TouchableOpacity>
 
               <View style={{ height: 60 }} />
             </ScrollView>
@@ -1996,7 +2359,7 @@ export const CounterConversationScreen: React.FC = () => {
   const prioritizedCards = getPrioritizedCards();
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: THEME.bg }]}>
       {/* 🟠 TOP HALF: Clerk-Facing 180° Rotated Display */}
       <View style={[styles.splitTop, { paddingTop: Math.max(insets.top, 10) }]}>
         <View style={styles.splitTopInner}>
@@ -2038,7 +2401,7 @@ export const CounterConversationScreen: React.FC = () => {
             {clerkMessage ? (
               <>
                 {!!clerkLabel && (
-                  <Text style={[styles.clerkStatusLabel, { fontSize: fs(17) }]}>
+                  <Text style={[styles.clerkStatusLabel, { fontSize: fs(16) }]}>
                     {clerkLabel}
                   </Text>
                 )}
@@ -2046,16 +2409,40 @@ export const CounterConversationScreen: React.FC = () => {
                   style={[
                     styles.clerkMainMessageLarge,
                     {
-                      fontSize: fs(clerkMessage.length <= 5 ? 54 : 38),
-                      lineHeight: fs(clerkMessage.length <= 5 ? 62 : 46),
+                      fontSize: fs(
+                        showClerkBarcode ? 30 : clerkMessage.length <= 5 ? 52 : 36
+                      ),
+                      lineHeight: fs(
+                        showClerkBarcode ? 36 : clerkMessage.length <= 5 ? 60 : 44
+                      ),
                     },
                   ]}
                   adjustsFontSizeToFit
-                  numberOfLines={3}
+                  numberOfLines={2}
                 >
                   {clerkMessage}
                 </Text>
-                <Text style={[styles.clerkSecondaryMessage, { fontSize: fs(16) }]}>
+
+                {/* 📊 SCANNABLE 180° E-INVOICE CARRIER BARCODE DRAWER */}
+                {showClerkBarcode && (
+                  <View style={styles.clerkBarcodeCard}>
+                    <View style={styles.clerkBarcodeBarsRow}>
+                      {BARCODE_WEIGHTS.map((w, i) => (
+                        <View
+                          key={i}
+                          style={{
+                            width: w * 2.2,
+                            height: 44,
+                            backgroundColor: i % 2 === 0 ? '#000' : 'transparent',
+                          }}
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.clerkBarcodeCodeText}>{carrierCode}</Text>
+                  </View>
+                )}
+
+                <Text style={[styles.clerkSecondaryMessage, { fontSize: fs(15) }]}>
                   {clerkSub ||
                     (currentLang === 'zh-TW'
                       ? '請直接對手機說話，或點上方按鈕選問題'
@@ -2094,24 +2481,35 @@ export const CounterConversationScreen: React.FC = () => {
         </Text>
       </View>
 
-      <View style={styles.splitDivider} />
+      <View style={[styles.splitDivider, { backgroundColor: THEME.border }]} />
 
       {/* ⚫ BOTTOM HALF: User-Facing Control Panel */}
-      <View style={[styles.splitBottom, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <View
+        style={[
+          styles.splitBottom,
+          { backgroundColor: THEME.bg, paddingBottom: Math.max(insets.bottom, 8) },
+        ]}
+      >
         <View style={styles.bottomHeaderGroup}>
           <View style={styles.bottomHeader}>
             <TouchableOpacity
-              style={styles.venueDropdown}
+              style={[
+                styles.venueDropdown,
+                { backgroundColor: THEME.surface, borderColor: THEME.border },
+              ]}
               onPress={() => setIsCounterMode(false)}
             >
-              <Text style={[styles.venueDropdownText, { fontSize: fs(15) }]}>
+              <Text style={[styles.venueDropdownText, { color: THEME.text, fontSize: fs(15) }]}>
                 {activeVenue.emoji} {getVenueShortName(activeVenue)} ▾
               </Text>
             </TouchableOpacity>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <TouchableOpacity
-                style={styles.offlineModePill}
+                style={[
+                  styles.offlineModePill,
+                  { backgroundColor: THEME.surfaceLight, borderColor: THEME.orange },
+                ]}
                 onPress={() => {
                   setClerkPickView('grid');
                   setClerkDigits('');
@@ -2123,9 +2521,15 @@ export const CounterConversationScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.liveStatusPill} onPress={toggleLiveListening}>
+              <TouchableOpacity
+                style={[
+                  styles.liveStatusPill,
+                  { backgroundColor: THEME.surface, borderColor: THEME.border },
+                ]}
+                onPress={toggleLiveListening}
+              >
                 <Text style={{ fontSize: fs(10) }}>{isLiveActive ? '🟢' : '⚪'}</Text>
-                <Text style={[styles.liveStatusText, { fontSize: fs(14) }]}>
+                <Text style={[styles.liveStatusText, { color: THEME.text, fontSize: fs(14) }]}>
                   {isLiveActive
                     ? currentLang === 'zh-TW'
                       ? '正在聽'
@@ -2137,7 +2541,21 @@ export const CounterConversationScreen: React.FC = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.smallSettingsBtn}
+                style={[
+                  styles.smallSettingsBtn,
+                  { backgroundColor: THEME.surface, borderColor: THEME.border },
+                ]}
+                onPress={toggleThemeMode}
+                accessibilityLabel="切換深淺主題"
+              >
+                <Text style={{ fontSize: fs(14) }}>{themeMode === 'dark' ? '☀️' : '🌙'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.smallSettingsBtn,
+                  { backgroundColor: THEME.surface, borderColor: THEME.border },
+                ]}
                 onPress={() => setIsSettingsOpen(true)}
                 accessibilityLabel="字體與設定"
               >
@@ -2164,7 +2582,10 @@ export const CounterConversationScreen: React.FC = () => {
               contentContainerStyle={{ alignItems: 'center', gap: 8 }}
             >
               {smartReplies.map((reply: any) => (
-                <View key={reply.id} style={styles.smartReplyPillWrap}>
+                <View
+                  key={reply.id}
+                  style={[styles.smartReplyPillWrap, { backgroundColor: THEME.surface }]}
+                >
                   <TouchableOpacity
                     style={styles.smartReplyMainTap}
                     onPress={() => {
@@ -2172,12 +2593,15 @@ export const CounterConversationScreen: React.FC = () => {
                       handleSelectOption(reply, reply.optRef);
                     }}
                   >
-                    <Text style={[styles.smartReplyBtnText, { fontSize: fs(15) }]}>
+                    <Text style={[styles.smartReplyBtnText, { color: THEME.text, fontSize: fs(15) }]}>
                       💡 {reply.text}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.smartReplySpeakerTap}
+                    style={[
+                      styles.smartReplySpeakerTap,
+                      { backgroundColor: THEME.surfaceLight, borderLeftColor: THEME.border },
+                    ]}
                     onPress={() => speakSentence(reply.clerkText || reply.text, 'zh-TW')}
                     accessibilityLabel="試聽這句話"
                   >
@@ -2189,9 +2613,14 @@ export const CounterConversationScreen: React.FC = () => {
           )}
 
           {liveStreamText ? (
-            <View style={styles.liveSubtitleBox}>
+            <View
+              style={[
+                styles.liveSubtitleBox,
+                { backgroundColor: THEME.surfaceLight, borderColor: THEME.success },
+              ]}
+            >
               <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={[styles.liveSubtitleText, { fontSize: fs(18) }]}>
+                <Text style={[styles.liveSubtitleText, { color: THEME.success, fontSize: fs(18) }]}>
                   "{liveStreamText}"
                 </Text>
                 {!liveStreamText.includes('請開始說話') &&
@@ -2217,7 +2646,10 @@ export const CounterConversationScreen: React.FC = () => {
                   )}
               </View>
               <TouchableOpacity
-                style={styles.subtitleSpeakerBtn}
+                style={[
+                  styles.subtitleSpeakerBtn,
+                  { backgroundColor: THEME.surface, borderColor: THEME.orange },
+                ]}
                 onPress={() => speakSentence(liveStreamText)}
                 accessibilityRole="button"
                 accessibilityLabel="播放聽到的句子"
@@ -2235,38 +2667,47 @@ export const CounterConversationScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         >
           {pendingAmount !== null ? (
-            <View style={styles.stageActiveCard}>
+            <View
+              style={[
+                styles.stageActiveCard,
+                { backgroundColor: THEME.surface, borderColor: THEME.orange },
+              ]}
+            >
               <View style={styles.stageCardHeader}>
                 <TouchableOpacity onPress={resetStageToIdle} style={styles.stageBackBtn}>
-                  <Text style={[styles.stageBackText, { fontSize: fs(15) }]}>
+                  <Text style={[styles.stageBackText, { color: THEME.textMuted, fontSize: fs(15) }]}>
                     ‹ {currentLang === 'zh-TW' ? '返回' : 'Back'}
                   </Text>
                 </TouchableOpacity>
-                <Text style={[styles.stageCardCaption, { fontSize: fs(14) }]}>
+                <Text style={[styles.stageCardCaption, { color: THEME.textMuted, fontSize: fs(14) }]}>
                   {currentLang === 'zh-TW' ? '店員輸入的金額' : 'Clerk Entered Amount'}
                 </Text>
                 <TouchableOpacity
                   onPress={() => speakSentence(`${pendingAmount}元`, 'zh-TW')}
-                  style={styles.stageSpeakSmallBtn}
+                  style={[styles.stageSpeakSmallBtn, { backgroundColor: THEME.surfaceLight }]}
                 >
                   <Text style={{ fontSize: fs(18) }}>🔊</Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.amountDisplayWell}>
-                <Text style={[styles.amountCurrencyText, { fontSize: fs(20) }]}>NT$</Text>
-                <Text style={[styles.amountFigureText, { fontSize: fs(48) }]}>
+              <View style={[styles.amountDisplayWell, { backgroundColor: THEME.bg }]}>
+                <Text style={[styles.amountCurrencyText, { color: THEME.textMuted, fontSize: fs(20) }]}>
+                  NT$
+                </Text>
+                <Text style={[styles.amountFigureText, { color: THEME.text, fontSize: fs(48) }]}>
                   {pendingAmount.toLocaleString('zh-TW')}
                 </Text>
-                <Text style={[styles.amountCurrencyText, { fontSize: fs(20) }]}>元</Text>
+                <Text style={[styles.amountCurrencyText, { color: THEME.textMuted, fontSize: fs(20) }]}>
+                  元
+                </Text>
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <TouchableOpacity
-                  style={[styles.amountConfirmBtn, { backgroundColor: THEME.text }]}
+                  style={[styles.amountConfirmBtn, { backgroundColor: THEME.orange }]}
                   onPress={() => handleConfirmAmount(true)}
                 >
-                  <Text style={{ color: THEME.bg, fontSize: fs(18), fontWeight: '800' }}>
+                  <Text style={{ color: '#000', fontSize: fs(18), fontWeight: '800' }}>
                     ✓ {currentLang === 'zh-TW' ? '對，確認' : 'Confirm'}
                   </Text>
                 </TouchableOpacity>
@@ -2281,14 +2722,19 @@ export const CounterConversationScreen: React.FC = () => {
               </View>
             </View>
           ) : activePromptCard ? (
-            <View style={styles.stageActiveCard}>
+            <View
+              style={[
+                styles.stageActiveCard,
+                { backgroundColor: THEME.surface, borderColor: THEME.orange },
+              ]}
+            >
               <View style={styles.stageCardHeader}>
                 <TouchableOpacity onPress={resetStageToIdle} style={styles.stageBackBtn}>
-                  <Text style={[styles.stageBackText, { fontSize: fs(15) }]}>
+                  <Text style={[styles.stageBackText, { color: THEME.textMuted, fontSize: fs(15) }]}>
                     ‹ {currentLang === 'zh-TW' ? '返回' : 'Back'}
                   </Text>
                 </TouchableOpacity>
-                <Text style={[styles.stageCardCaption, { fontSize: fs(14) }]}>
+                <Text style={[styles.stageCardCaption, { color: THEME.textMuted, fontSize: fs(14) }]}>
                   {currentLang === 'zh-TW' ? '店員在問' : 'Clerk is asking'}
                 </Text>
                 <TouchableOpacity
@@ -2299,13 +2745,13 @@ export const CounterConversationScreen: React.FC = () => {
                       'zh-TW'
                     )
                   }
-                  style={styles.stageSpeakSmallBtn}
+                  style={[styles.stageSpeakSmallBtn, { backgroundColor: THEME.surfaceLight }]}
                 >
                   <Text style={{ fontSize: fs(18) }}>🔊</Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={[styles.stageQuestionHeadline, { fontSize: fs(28) }]}>
+              <Text style={[styles.stageQuestionHeadline, { color: THEME.text, fontSize: fs(28) }]}>
                 {activePromptCard.question?.[currentLang] ||
                   activePromptCard.question?.['zh-TW']}
               </Text>
@@ -2329,6 +2775,7 @@ export const CounterConversationScreen: React.FC = () => {
                       <TouchableOpacity
                         style={[
                           styles.stageOptionTile,
+                          { backgroundColor: THEME.bg, borderColor: THEME.border },
                           isSelected && styles.stageOptionTileSelected,
                         ]}
                         onPress={() =>
@@ -2344,7 +2791,7 @@ export const CounterConversationScreen: React.FC = () => {
                         <Text
                           style={[
                             styles.stageOptionTileText,
-                            { fontSize: fs(20) },
+                            { color: THEME.text, fontSize: fs(20) },
                             isSelected && { color: '#000', fontWeight: '800' },
                           ]}
                         >
@@ -2354,7 +2801,7 @@ export const CounterConversationScreen: React.FC = () => {
                           <Text
                             style={[
                               styles.stageOptionTileSub,
-                              { fontSize: fs(13) },
+                              { color: THEME.textMuted, fontSize: fs(13) },
                               isSelected && { color: 'rgba(0,0,0,0.7)' },
                             ]}
                           >
@@ -2379,13 +2826,21 @@ export const CounterConversationScreen: React.FC = () => {
               marginTop: 4,
             }}
           >
-            <Text style={[styles.sectionListHeader, { fontSize: fs(14), marginBottom: 0 }]}>
+            <Text
+              style={[
+                styles.sectionListHeader,
+                { color: THEME.textMuted, fontSize: fs(14), marginBottom: 0 },
+              ]}
+            >
               {currentLang === 'zh-TW'
                 ? '點選問題或直接回答店員：'
                 : 'Tap a question or answer directly:'}
             </Text>
             <TouchableOpacity
-              style={styles.addCustomQaBtn}
+              style={[
+                styles.addCustomQaBtn,
+                { backgroundColor: THEME.surface, borderColor: THEME.orange },
+              ]}
               onPress={() => {
                 setNewQuestionInput(lastHeardQuestion || '');
                 setNewAnswerInput('');
@@ -2403,9 +2858,20 @@ export const CounterConversationScreen: React.FC = () => {
             const isLearnedCard =
               card.isCustom || String(card.id).startsWith('learned_');
             return (
-              <View key={card.id} style={styles.cardGroupBox}>
+              <View
+                key={card.id}
+                style={[
+                  styles.cardGroupBox,
+                  { backgroundColor: THEME.surface, borderColor: THEME.border },
+                ]}
+              >
                 {qTitle && (
-                  <View style={styles.cardQuestionHeaderRow}>
+                  <View
+                    style={[
+                      styles.cardQuestionHeaderRow,
+                      { backgroundColor: THEME.surfaceLight, borderBottomColor: THEME.border },
+                    ]}
+                  >
                     <TouchableOpacity
                       style={{ flex: 1 }}
                       onPress={() => openCardStage(card)}
@@ -2429,7 +2895,10 @@ export const CounterConversationScreen: React.FC = () => {
                         </TouchableOpacity>
                       )}
                       <TouchableOpacity
-                        style={styles.rowSpeakerIconBtn}
+                        style={[
+                          styles.rowSpeakerIconBtn,
+                          { backgroundColor: THEME.bg, borderColor: THEME.border },
+                        ]}
                         onPress={() => speakSentence(qTitle, 'zh-TW')}
                         accessibilityLabel={`朗讀問題：${qTitle}`}
                       >
@@ -2443,7 +2912,10 @@ export const CounterConversationScreen: React.FC = () => {
                   const mainLabel = opt.labels[currentLang] || opt.labels['zh-TW'];
                   const subLabel = opt.subLabels?.[currentLang] || opt.subLabels?.['zh-TW'];
                   return (
-                    <View key={`${card.id}_${idx}`} style={styles.questionRow}>
+                    <View
+                      key={`${card.id}_${idx}`}
+                      style={[styles.questionRow, { borderBottomColor: THEME.border }]}
+                    >
                       <TouchableOpacity
                         style={styles.questionTextCol}
                         onPress={() =>
@@ -2456,18 +2928,31 @@ export const CounterConversationScreen: React.FC = () => {
                           )
                         }
                       >
-                        <Text style={[styles.questionTitle, { fontSize: fs(19) }]}>
+                        <Text
+                          style={[
+                            styles.questionTitle,
+                            { color: THEME.text, fontSize: fs(19) },
+                          ]}
+                        >
                           {mainLabel}
                         </Text>
                         {subLabel && (
-                          <Text style={[styles.questionSub, { fontSize: fs(14) }]}>
+                          <Text
+                            style={[
+                              styles.questionSub,
+                              { color: THEME.textMuted, fontSize: fs(14) },
+                            ]}
+                          >
                             {subLabel}
                           </Text>
                         )}
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={styles.rowSpeakerIconBtn}
+                        style={[
+                          styles.rowSpeakerIconBtn,
+                          { backgroundColor: THEME.bg, borderColor: THEME.border },
+                        ]}
                         onPress={() => speakSentence(opt.tts || opt.labels['zh-TW'], 'zh-TW')}
                         accessibilityLabel={`發音：${mainLabel}`}
                       >
@@ -2481,7 +2966,10 @@ export const CounterConversationScreen: React.FC = () => {
           })}
 
           <TouchableOpacity
-            style={[styles.questionRow, { paddingHorizontal: 12, marginTop: 8 }]}
+            style={[
+              styles.questionRow,
+              { borderBottomColor: THEME.border, paddingHorizontal: 12, marginTop: 8 },
+            ]}
             onPress={() => setIsSOSOpen(true)}
           >
             <View style={styles.questionTextCol}>
@@ -2493,23 +2981,29 @@ export const CounterConversationScreen: React.FC = () => {
               >
                 🚨 {currentLang === 'zh-TW' ? '緊急醫療求助 (SOS)' : 'Medical SOS'}
               </Text>
-              <Text style={[styles.questionSub, { fontSize: fs(14) }]}>
+              <Text style={[styles.questionSub, { color: THEME.textMuted, fontSize: fs(14) }]}>
                 {currentLang === 'zh-TW' ? '顯示緊急醫療卡並播放求助語音' : 'Show emergency card & speak'}
               </Text>
             </View>
-            <Text style={[styles.questionArrow, { fontSize: fs(24) }]}>›</Text>
+            <Text style={[styles.questionArrow, { color: THEME.textMuted, fontSize: fs(24) }]}>
+              ›
+            </Text>
           </TouchableOpacity>
         </ScrollView>
 
         {/* Bottom Action Bar */}
-        <View style={styles.bottomActionBar}>
+        <View style={[styles.bottomActionBar, { backgroundColor: THEME.bg }]}>
           <TouchableOpacity
-            style={styles.actionBtnSecondary}
+            style={[
+              styles.actionBtnSecondary,
+              { backgroundColor: THEME.surface, borderColor: THEME.border },
+            ]}
             onPress={() => {
               const askAgain =
                 currentLang === 'zh-TW'
                   ? '不好意思，我沒聽清楚，可以再說一次或用點的嗎？'
                   : 'Sorry, could you say that again or tap the screen?';
+              setShowClerkBarcode(false);
               setClerkLabel(currentLang === 'zh-TW' ? '請再說一次' : 'Please Repeat');
               setClerkMessage(
                 currentLang === 'zh-TW' ? '可以再說一次嗎？' : 'Could you repeat that?'
@@ -2522,16 +3016,16 @@ export const CounterConversationScreen: React.FC = () => {
               speakSentence(askAgain, 'zh-TW');
             }}
           >
-            <Text style={[styles.actionBtnSecondaryText, { fontSize: fs(16) }]}>
+            <Text style={[styles.actionBtnSecondaryText, { color: THEME.text, fontSize: fs(16) }]}>
               ❓ {currentLang === 'zh-TW' ? '我沒聽懂 / 再說一次' : 'Say Again'}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.actionBtnPrimary}
+            style={[styles.actionBtnPrimary, { backgroundColor: THEME.surfaceLight }]}
             onPress={() => setIsTypeToClerkOpen(true)}
           >
-            <Text style={[styles.actionBtnPrimaryText, { fontSize: fs(16) }]}>
+            <Text style={[styles.actionBtnPrimaryText, { color: THEME.text, fontSize: fs(16) }]}>
               ✏️ {currentLang === 'zh-TW' ? '打字' : 'Type'}
             </Text>
           </TouchableOpacity>
@@ -2658,7 +3152,7 @@ export const CounterConversationScreen: React.FC = () => {
                       setClerkDigits('');
                     }}
                   >
-                    <Text style={{ color: THEME.text, fontSize: fs(18), fontWeight: '600' }}>
+                    <Text style={{ color: '#FFF', fontSize: fs(18), fontWeight: '600' }}>
                       {currentLang === 'zh-TW' ? '回到問題' : 'Back'}
                     </Text>
                   </TouchableOpacity>
@@ -2701,8 +3195,18 @@ export const CounterConversationScreen: React.FC = () => {
       {/* Modal: Type to Clerk */}
       <Modal visible={isTypeToClerkOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.typeModalCard}>
-            <Text style={[styles.settingsModalTitle, { fontSize: fs(20), marginBottom: 8 }]}>
+          <View
+            style={[
+              styles.typeModalCard,
+              { backgroundColor: THEME.surface, borderColor: THEME.border },
+            ]}
+          >
+            <Text
+              style={[
+                styles.settingsModalTitle,
+                { color: THEME.text, fontSize: fs(20), marginBottom: 8 },
+              ]}
+            >
               ✏️ {currentLang === 'zh-TW' ? '打字給對方看' : 'Type to Clerk'}
             </Text>
             {!!lastHeardQuestion && (
@@ -2711,7 +3215,16 @@ export const CounterConversationScreen: React.FC = () => {
               </Text>
             )}
             <TextInput
-              style={[styles.inputField, { fontSize: fs(17), minHeight: 80 }]}
+              style={[
+                styles.inputField,
+                {
+                  backgroundColor: THEME.bg,
+                  color: THEME.text,
+                  borderColor: THEME.border,
+                  fontSize: fs(17),
+                  minHeight: 80,
+                },
+              ]}
               placeholder={currentLang === 'zh-TW' ? '輸入回答文字或電話號碼...' : 'Type text...'}
               placeholderTextColor={THEME.textMuted}
               value={customTypeInput}
@@ -2728,7 +3241,7 @@ export const CounterConversationScreen: React.FC = () => {
               style={[styles.closeBtn, { marginTop: 8 }]}
               onPress={() => setIsTypeToClerkOpen(false)}
             >
-              <Text style={[styles.closeBtnText, { fontSize: fs(15) }]}>
+              <Text style={[styles.closeBtnText, { color: THEME.textMuted, fontSize: fs(15) }]}>
                 {currentLang === 'zh-TW' ? '關閉 (Close)' : 'Close'}
               </Text>
             </TouchableOpacity>
@@ -2739,8 +3252,18 @@ export const CounterConversationScreen: React.FC = () => {
       {/* Modal: Manual Add New Question & Answer for Current Situation */}
       <Modal visible={isAddQaOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.typeModalCard}>
-            <Text style={[styles.settingsModalTitle, { fontSize: fs(20), marginBottom: 6 }]}>
+          <View
+            style={[
+              styles.typeModalCard,
+              { backgroundColor: THEME.surface, borderColor: THEME.border },
+            ]}
+          >
+            <Text
+              style={[
+                styles.settingsModalTitle,
+                { color: THEME.text, fontSize: fs(20), marginBottom: 6 },
+              ]}
+            >
               ✨ {currentLang === 'zh-TW' ? '新增問題與回答' : 'Save New Question & Answer'}
             </Text>
             <Text style={{ color: THEME.textMuted, fontSize: fs(13), marginBottom: 12 }}>
@@ -2753,7 +3276,16 @@ export const CounterConversationScreen: React.FC = () => {
               {currentLang === 'zh-TW' ? '1. 店員問的問題 (關鍵句)：' : '1. Clerk Question:'}
             </Text>
             <TextInput
-              style={[styles.inputField, { fontSize: fs(16), minHeight: 48 }]}
+              style={[
+                styles.inputField,
+                {
+                  backgroundColor: THEME.bg,
+                  color: THEME.text,
+                  borderColor: THEME.border,
+                  fontSize: fs(16),
+                  minHeight: 48,
+                },
+              ]}
               placeholder={currentLang === 'zh-TW' ? '例如：要不要加辣？ / 刷條碼嗎？' : 'e.g. Spicy?'}
               placeholderTextColor={THEME.textMuted}
               value={newQuestionInput}
@@ -2764,7 +3296,16 @@ export const CounterConversationScreen: React.FC = () => {
               {currentLang === 'zh-TW' ? '2. 我的預設回答：' : '2. My Preferred Answer:'}
             </Text>
             <TextInput
-              style={[styles.inputField, { fontSize: fs(16), minHeight: 48 }]}
+              style={[
+                styles.inputField,
+                {
+                  backgroundColor: THEME.bg,
+                  color: THEME.text,
+                  borderColor: THEME.border,
+                  fontSize: fs(16),
+                  minHeight: 48,
+                },
+              ]}
               placeholder={currentLang === 'zh-TW' ? '例如：小辣，謝謝' : 'e.g. Mild spicy, thanks'}
               placeholderTextColor={THEME.textMuted}
               value={newAnswerInput}
@@ -2773,14 +3314,14 @@ export const CounterConversationScreen: React.FC = () => {
 
             <TouchableOpacity style={styles.sendBtn} onPress={handleManualSaveQA}>
               <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
-                💾 {currentLang === 'zh-TW' ? '儲存至本場景' : 'Save for Future'}
+                💾 {currentLang === 'zh-TW' ? '儲存至本場景並同步雲端' : 'Save & Sync for Future'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.closeBtn, { marginTop: 8 }]}
               onPress={() => setIsAddQaOpen(false)}
             >
-              <Text style={[styles.closeBtnText, { fontSize: fs(15) }]}>
+              <Text style={[styles.closeBtnText, { color: THEME.textMuted, fontSize: fs(15) }]}>
                 {currentLang === 'zh-TW' ? '取消' : 'Cancel'}
               </Text>
             </TouchableOpacity>
@@ -2791,9 +3332,19 @@ export const CounterConversationScreen: React.FC = () => {
       {/* Modal: Quick Font Scaling in Counter Mode */}
       <Modal visible={isSettingsOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.typeModalCard}>
-            <Text style={[styles.settingsModalTitle, { fontSize: fs(20), marginBottom: 12 }]}>
-              {currentLang === 'zh-TW' ? '字體大小調整' : 'Adjust Font Size'}
+          <View
+            style={[
+              styles.typeModalCard,
+              { backgroundColor: THEME.surface, borderColor: THEME.border },
+            ]}
+          >
+            <Text
+              style={[
+                styles.settingsModalTitle,
+                { color: THEME.text, fontSize: fs(20), marginBottom: 12 },
+              ]}
+            >
+              {currentLang === 'zh-TW' ? '字體大小與主題調整' : 'Font Size & Theme'}
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
               {FONT_SCALE_OPTIONS.map((f) => (
@@ -2801,6 +3352,7 @@ export const CounterConversationScreen: React.FC = () => {
                   key={f.label}
                   style={[
                     styles.fontBtn,
+                    { backgroundColor: THEME.bg, borderColor: THEME.border },
                     fontScale === f.val && {
                       backgroundColor: THEME.orange,
                       borderColor: THEME.orange,
@@ -2811,7 +3363,7 @@ export const CounterConversationScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.fontBtnText,
-                      { fontSize: fs(14) },
+                      { color: THEME.text, fontSize: fs(14) },
                       fontScale === f.val && { color: '#000', fontWeight: '800' },
                     ]}
                   >
@@ -2882,7 +3434,7 @@ export const CounterConversationScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: THEME.bg },
+  screen: { flex: 1 },
   homeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2893,25 +3445,28 @@ const styles = StyleSheet.create({
   },
   homeTitleLogo: {
     fontWeight: '800',
-    color: THEME.text,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
-  topRightControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cloudDotBadge: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#34C759',
+  },
+  topRightControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   iconBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: THEME.border,
-    backgroundColor: THEME.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconText: { color: THEME.text, fontWeight: '700' },
+  iconText: { fontWeight: '700' },
   toastBanner: {
     backgroundColor: 'rgba(52, 199, 89, 0.18)',
     borderWidth: 1,
-    borderColor: THEME.success,
+    borderColor: '#34C759',
     marginHorizontal: 16,
     marginBottom: 10,
     paddingHorizontal: 14,
@@ -2919,48 +3474,38 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   toastBannerText: {
-    color: THEME.success,
+    color: '#34C759',
     fontWeight: '700',
   },
   satelliteDropdownContainer: { paddingHorizontal: 16, marginBottom: 14, zIndex: 100 },
   satelliteEditorCard: {
-    backgroundColor: THEME.surface,
     padding: 14,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: THEME.success,
   },
-  satelliteFoundLabel: { color: THEME.success, fontWeight: '700' },
-  nearbyPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: THEME.success },
+  satelliteFoundLabel: { color: '#34C759', fontWeight: '700' },
+  nearbyPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#34C759' },
   rescanSmallBtn: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: THEME.surfaceLight,
     borderWidth: 1,
-    borderColor: THEME.orange,
   },
   candidateChip: {
-    backgroundColor: THEME.surfaceLight,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   candidateChipActive: {
-    backgroundColor: THEME.orange,
-    borderColor: THEME.orange,
+    backgroundColor: '#FF9500',
+    borderColor: '#FF9500',
   },
   candidateChipText: {
-    color: THEME.text,
     fontWeight: '600',
   },
   editableLocationInput: {
-    backgroundColor: THEME.bg,
-    color: THEME.text,
     borderWidth: 1,
-    borderColor: THEME.border,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -2968,23 +3513,20 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   templateTypeChip: {
-    backgroundColor: THEME.bg,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   templateTypeChipActive: {
-    backgroundColor: THEME.orange,
-    borderColor: THEME.orange,
+    backgroundColor: '#FF9500',
+    borderColor: '#FF9500',
   },
   templateTypeChipText: {
-    color: THEME.text,
     fontWeight: '600',
   },
   saveLocationConfirmBtn: {
-    backgroundColor: THEME.orange,
+    backgroundColor: '#FF9500',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
@@ -2998,22 +3540,18 @@ const styles = StyleSheet.create({
   greetingSection: { marginBottom: 16, marginTop: 6, paddingHorizontal: 16 },
   greetingTitle: {
     fontWeight: '800',
-    color: THEME.text,
     marginBottom: 4,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   greetingSub: {
     fontWeight: '500',
-    color: THEME.textMuted,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   heroCard: {
-    backgroundColor: THEME.surface,
     borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: THEME.border,
     alignItems: 'center',
     marginHorizontal: 16,
   },
@@ -3021,11 +3559,10 @@ const styles = StyleSheet.create({
   heroContent: { padding: 18, width: '100%' },
   heroTitle: {
     fontWeight: '700',
-    color: THEME.text,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   startModeBtn: {
-    backgroundColor: THEME.orange,
+    backgroundColor: '#FF9500',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -3035,19 +3572,17 @@ const styles = StyleSheet.create({
   startModeBtnText: {
     color: '#000',
     fontWeight: '800',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   heroHint: {
-    color: THEME.textMuted,
     textAlign: 'center',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   carouselSection: { paddingLeft: 16 },
   carouselTitle: {
     fontWeight: '700',
-    color: THEME.text,
     marginBottom: 14,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   carouselScroll: { gap: 14, paddingBottom: 20, paddingRight: 16, paddingTop: 4 },
   carouselItem: { alignItems: 'center', width: 84 },
@@ -3059,24 +3594,21 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  carouselItemImgActive: { borderColor: THEME.orange },
+  carouselItemImgActive: { borderColor: '#FF9500' },
   carouselItemText: {
-    color: THEME.textMuted,
     fontWeight: '500',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
     textAlign: 'center',
   },
   manageVenueRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: THEME.surface,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   manageVenueDeleteBtn: {
     paddingHorizontal: 10,
@@ -3087,8 +3619,8 @@ const styles = StyleSheet.create({
 
   // 🟠 TOP 180° CLERK SPLIT PANEL
   splitTop: {
-    flex: 0.92,
-    backgroundColor: THEME.orange,
+    flex: 0.94,
+    backgroundColor: '#FF9500',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
@@ -3097,7 +3629,7 @@ const styles = StyleSheet.create({
     width: '100%',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 10,
     transform: [{ rotate: '180deg' }],
   },
   clerkTopActionRow: {
@@ -3117,9 +3649,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   clerkOfflinePickText: {
-    color: THEME.orange,
+    color: '#FF9500',
     fontWeight: '800',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   clerkRoundSpeakBtn: {
     width: 50,
@@ -3135,51 +3667,73 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   clerkStatusLabel: {
     color: 'rgba(0,0,0,0.75)',
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   clerkDefaultHeadline: {
     fontWeight: '900',
     color: '#000',
     textAlign: 'center',
     letterSpacing: -0.5,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   clerkDefaultSub: {
     fontWeight: '700',
     color: 'rgba(0,0,0,0.75)',
-    marginTop: 12,
+    marginTop: 10,
     textAlign: 'center',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   clerkMainMessageLarge: {
     fontWeight: '900',
     color: '#000',
     textAlign: 'center',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
+  },
+  clerkBarcodeCard: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+    borderWidth: 2,
+    borderColor: '#000000',
+  },
+  clerkBarcodeBarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clerkBarcodeCodeText: {
+    color: '#000000',
+    fontWeight: '900',
+    fontSize: 16,
+    letterSpacing: 3,
+    marginTop: 4,
   },
   clerkSecondaryMessage: {
     fontWeight: '700',
-    color: 'rgba(0,0,0,0.7)',
-    marginTop: 10,
+    color: 'rgba(0,0,0,0.75)',
+    marginTop: 6,
     textAlign: 'center',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   clerkFlipEdgeHint: {
     color: 'rgba(0,0,0,0.65)',
     fontWeight: '700',
     paddingBottom: 4,
   },
-  splitDivider: { height: 3, backgroundColor: '#222' },
+  splitDivider: { height: 3 },
 
   // ⚫ BOTTOM USER SPLIT PANEL
   splitBottom: {
     flex: 1.25,
-    backgroundColor: THEME.bg,
     paddingHorizontal: 14,
     paddingTop: 10,
   },
@@ -3195,60 +3749,49 @@ const styles = StyleSheet.create({
   venueDropdown: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.surface,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   venueDropdownText: {
-    color: THEME.text,
     fontWeight: '700',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   offlineModePill: {
-    backgroundColor: THEME.surfaceLight,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: THEME.orange,
   },
   offlineModePillText: {
-    color: THEME.orange,
+    color: '#FF9500',
     fontWeight: '700',
   },
   liveStatusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.surface,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: THEME.border,
     gap: 6,
   },
   liveStatusText: {
-    color: THEME.text,
     fontWeight: '700',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   smallSettingsBtn: {
-    backgroundColor: THEME.surface,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   smartReplyPillWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.surface,
     borderWidth: 1.5,
-    borderColor: THEME.orange,
+    borderColor: '#FF9500',
     borderRadius: 999,
     overflow: 'hidden',
   },
@@ -3260,42 +3803,33 @@ const styles = StyleSheet.create({
   smartReplySpeakerTap: {
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: THEME.surfaceLight,
     borderLeftWidth: 1,
-    borderLeftColor: THEME.border,
   },
-  smartReplyBtnText: { color: THEME.text, fontWeight: '700' },
+  smartReplyBtnText: { fontWeight: '700' },
   liveSubtitleBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: THEME.surfaceLight,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: THEME.success,
   },
   liveSubtitleText: {
-    color: THEME.success,
     fontWeight: '700',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   subtitleSpeakerBtn: {
     width: 44,
     height: 44,
     borderRadius: 10,
-    backgroundColor: THEME.surface,
     borderWidth: 1,
-    borderColor: THEME.orange,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stageActiveCard: {
-    backgroundColor: THEME.surface,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: THEME.orange,
     padding: 14,
     marginBottom: 14,
   },
@@ -3306,15 +3840,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   stageBackBtn: { paddingVertical: 4, paddingRight: 10 },
-  stageBackText: { color: THEME.textMuted, fontWeight: '600' },
-  stageCardCaption: { color: THEME.textMuted, fontWeight: '600' },
+  stageBackText: { fontWeight: '600' },
+  stageCardCaption: { fontWeight: '600' },
   stageSpeakSmallBtn: {
     padding: 6,
     borderRadius: 8,
-    backgroundColor: THEME.surfaceLight,
   },
   stageQuestionHeadline: {
-    color: THEME.text,
     fontWeight: '800',
     marginBottom: 14,
   },
@@ -3326,9 +3858,7 @@ const styles = StyleSheet.create({
   stageOptionCell: { padding: 4 },
   stageOptionTile: {
     minHeight: 68,
-    backgroundColor: THEME.bg,
     borderWidth: 1,
-    borderColor: THEME.border,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -3336,16 +3866,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stageOptionTileSelected: {
-    backgroundColor: THEME.orange,
-    borderColor: THEME.orange,
+    backgroundColor: '#FF9500',
+    borderColor: '#FF9500',
   },
   stageOptionTileText: {
-    color: THEME.text,
     fontWeight: '700',
     textAlign: 'center',
   },
   stageOptionTileSub: {
-    color: THEME.textMuted,
     marginTop: 4,
     textAlign: 'center',
   },
@@ -3354,13 +3882,12 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: THEME.bg,
     borderRadius: 12,
     paddingVertical: 16,
     marginBottom: 12,
   },
-  amountCurrencyText: { color: THEME.textMuted, fontWeight: '600' },
-  amountFigureText: { color: THEME.text, fontWeight: '900' },
+  amountCurrencyText: { fontWeight: '600' },
+  amountFigureText: { fontWeight: '900' },
   amountConfirmBtn: {
     flex: 1,
     paddingVertical: 14,
@@ -3370,7 +3897,6 @@ const styles = StyleSheet.create({
   },
   questionsList: { flex: 1 },
   sectionListHeader: {
-    color: THEME.textMuted,
     fontWeight: '600',
     marginBottom: 8,
     marginTop: 4,
@@ -3379,15 +3905,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: THEME.surface,
     borderWidth: 1,
-    borderColor: THEME.orange,
   },
   cardGroupBox: {
-    backgroundColor: THEME.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: THEME.border,
     marginBottom: 10,
     overflow: 'hidden',
   },
@@ -3395,14 +3917,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: THEME.surfaceLight,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.border,
   },
   cardQuestionHeaderText: {
-    color: THEME.orange,
+    color: '#FF9500',
     fontWeight: '800',
   },
   deleteCardSmallBtn: {
@@ -3418,69 +3938,59 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.border,
   },
   questionTextCol: { flex: 1, gap: 2, paddingRight: 8 },
   questionTitle: {
     fontWeight: '700',
-    color: THEME.text,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
-  questionSub: { color: THEME.textMuted, fontFamily: THEME.fontFamily },
+  questionSub: { fontFamily: FONT_FAMILY },
   rowSpeakerIconBtn: {
     width: 42,
     height: 42,
     borderRadius: 10,
-    backgroundColor: THEME.bg,
     borderWidth: 1,
-    borderColor: THEME.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  questionArrow: { color: THEME.textMuted },
+  questionArrow: {},
   bottomActionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingTop: 10,
     paddingBottom: 4,
-    backgroundColor: THEME.bg,
   },
   actionBtnSecondary: {
     flex: 1.5,
-    backgroundColor: THEME.surface,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   actionBtnSecondaryText: {
-    color: THEME.text,
     fontWeight: '700',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   actionBtnPrimary: {
     flex: 1,
-    backgroundColor: THEME.surfaceLight,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   actionBtnPrimaryText: {
-    color: THEME.text,
     fontWeight: '700',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
-  clerkPickModalRoot: { flex: 1, backgroundColor: THEME.bg },
+  clerkPickModalRoot: { flex: 1, backgroundColor: '#000000' },
   clerkPickRotatedArea: {
     flex: 1,
     transform: [{ rotate: '180deg' }],
     paddingHorizontal: 16,
   },
   clerkPickHeader: { marginBottom: 14, paddingHorizontal: 4 },
-  clerkPickOrangeSub: { color: THEME.orange, fontWeight: '700', marginBottom: 4 },
-  clerkPickMainTitle: { color: THEME.text, fontWeight: '900' },
+  clerkPickOrangeSub: { color: '#FF9500', fontWeight: '700', marginBottom: 4 },
+  clerkPickMainTitle: { color: '#FFFFFF', fontWeight: '900' },
   clerkPickGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -3490,10 +4000,10 @@ const styles = StyleSheet.create({
   clerkPickCell: { width: '50%', padding: 6 },
   clerkPickTile: {
     height: 100,
-    backgroundColor: THEME.surface,
+    backgroundColor: '#1C1C1E',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: THEME.border,
+    borderColor: '#38383A',
     paddingHorizontal: 14,
     justifyContent: 'center',
   },
@@ -3501,10 +4011,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    borderColor: THEME.orange,
+    borderColor: '#FF9500',
     borderWidth: 1.5,
   },
-  clerkPickTileText: { color: THEME.text, fontWeight: '700' },
+  clerkPickTileText: { color: '#FFFFFF', fontWeight: '700' },
   clerkKeypadContainer: {
     flex: 1,
     justifyContent: 'space-between',
@@ -3515,14 +4025,14 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: THEME.surface,
+    backgroundColor: '#1C1C1E',
     borderRadius: 16,
     paddingVertical: 18,
     paddingHorizontal: 16,
     marginBottom: 10,
   },
-  clerkKeypadCurrency: { color: THEME.textMuted, fontWeight: '600' },
-  clerkKeypadFigure: { color: THEME.text, fontWeight: '900' },
+  clerkKeypadCurrency: { color: '#8E8E93', fontWeight: '600' },
+  clerkKeypadFigure: { color: '#FFFFFF', fontWeight: '900' },
   clerkKeypadGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -3531,20 +4041,20 @@ const styles = StyleSheet.create({
   clerkKeyCell: { width: '33.333%', padding: 4 },
   clerkKeyBtn: {
     minHeight: 58,
-    backgroundColor: THEME.surface,
+    backgroundColor: '#1C1C1E',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: THEME.border,
+    borderColor: '#38383A',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clerkKeyBtnText: { color: THEME.text, fontWeight: '700' },
+  clerkKeyBtnText: { color: '#FFFFFF', fontWeight: '700' },
   clerkKeypadGhostBtn: {
     flex: 1,
     minHeight: 54,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: THEME.border,
+    borderColor: '#38383A',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3552,19 +4062,19 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 54,
     borderRadius: 12,
-    backgroundColor: THEME.orange,
+    backgroundColor: '#FF9500',
     alignItems: 'center',
     justifyContent: 'center',
   },
   clerkPickUserCancelBar: {
     borderTopWidth: 1,
-    borderTopColor: THEME.border,
+    borderTopColor: '#38383A',
     paddingTop: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: THEME.bg,
+    backgroundColor: '#000000',
   },
-  clerkPickUserCancelText: { color: THEME.textMuted, fontWeight: '700' },
+  clerkPickUserCancelText: { color: '#8E8E93', fontWeight: '700' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -3574,7 +4084,6 @@ const styles = StyleSheet.create({
   settingsModalCardFull: {
     width: '100%',
     height: '100%',
-    backgroundColor: THEME.bg,
   },
   settingsHeader: {
     flexDirection: 'row',
@@ -3584,12 +4093,10 @@ const styles = StyleSheet.create({
   },
   settingsModalTitle: {
     fontWeight: '800',
-    color: THEME.text,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   settingsSectionTitle: {
     fontWeight: '700',
-    color: THEME.text,
     marginBottom: 8,
     marginTop: 12,
   },
@@ -3598,19 +4105,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: THEME.border,
-    backgroundColor: THEME.surface,
     alignItems: 'center',
   },
-  fontBtnText: { color: THEME.text, fontWeight: '600' },
+  fontBtnText: { fontWeight: '600' },
   typeModalCard: {
     width: '90%',
     maxWidth: 380,
     borderRadius: 20,
     padding: 24,
-    backgroundColor: THEME.surface,
     borderWidth: 1,
-    borderColor: THEME.border,
   },
   langOptionItem: {
     flexDirection: 'row',
@@ -3619,36 +4122,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     marginBottom: 8,
-    backgroundColor: THEME.surface,
   },
-  langOptionText: { color: THEME.text, fontFamily: THEME.fontFamily },
-  settingsDivider: { height: 1, backgroundColor: THEME.border, marginVertical: 20 },
+  langOptionText: { fontFamily: FONT_FAMILY },
+  settingsDivider: { height: 1, marginVertical: 20 },
   settingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  settingRowLabel: { color: THEME.text, fontWeight: '500' },
+  settingRowLabel: { fontWeight: '500' },
   toggleSwitch: {
     width: 48,
     height: 26,
     borderRadius: 13,
-    backgroundColor: THEME.bg,
     borderWidth: 1,
-    borderColor: THEME.border,
     justifyContent: 'center',
     padding: 2,
   },
   toggleSwitchActive: {
-    backgroundColor: THEME.translateAccent,
-    borderColor: THEME.translateAccent,
+    backgroundColor: '#0A84FF',
+    borderColor: '#0A84FF',
   },
   toggleThumb: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: THEME.textMuted,
+    backgroundColor: '#8E8E93',
   },
   toggleThumbActive: {
     backgroundColor: '#FFF',
@@ -3657,31 +4157,27 @@ const styles = StyleSheet.create({
   closeBtn: { paddingVertical: 12, alignItems: 'center' },
   closeBtnText: {
     fontWeight: '600',
-    color: THEME.textMuted,
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   inputField: {
     width: '100%',
     minHeight: 56,
     borderRadius: 10,
-    backgroundColor: THEME.bg,
     borderWidth: 1,
-    borderColor: THEME.border,
     padding: 14,
-    color: THEME.text,
     marginBottom: 12,
   },
   sendBtn: {
     width: '100%',
     paddingVertical: 14,
     borderRadius: 10,
-    backgroundColor: THEME.orange,
+    backgroundColor: '#FF9500',
     alignItems: 'center',
   },
   sendBtnText: {
     color: '#000',
     fontWeight: '800',
-    fontFamily: THEME.fontFamily,
+    fontFamily: FONT_FAMILY,
   },
   sosCardFull: { backgroundColor: '#FF3B30', borderRadius: 20, padding: 24 },
   sosCardHeader: {
@@ -3690,7 +4186,7 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 16,
   },
-  sosTitle: { color: '#FFF', fontWeight: '800', fontFamily: THEME.fontFamily },
+  sosTitle: { color: '#FFF', fontWeight: '800', fontFamily: FONT_FAMILY },
   sosInfoBox: {
     backgroundColor: '#CC2E26',
     borderRadius: 12,
