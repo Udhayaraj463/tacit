@@ -128,12 +128,128 @@ const AmbientBackground = ({
   isListening?: boolean;
   isCounter?: boolean;
 }) => {
+  const drift1 = useRef(new Animated.Value(0)).current;
+  const drift2 = useRef(new Animated.Value(0)).current;
+  const twinkle = useRef(new Animated.Value(0.25)).current;
+
+  // Inject pure GPU CSS keyframes on Web so the JS speech thread has 0% animation load
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const styleId = 'mochi-gpu-sky-animations';
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          @keyframes mochiFloatSlow {
+            0%, 100% { transform: translate3d(-30px, -18px, 0) scale(1); }
+            50% { transform: translate3d(42px, 26px, 0) scale(1.12); }
+          }
+          @keyframes mochiFloatReverse {
+            0%, 100% { transform: translate3d(36px, 22px, 0) scale(1.08); }
+            50% { transform: translate3d(-38px, -24px, 0) scale(0.92); }
+          }
+          @keyframes mochiCloudDrift {
+            0%, 100% { transform: translate3d(-18px, 0px, 0); }
+            50% { transform: translate3d(28px, -8px, 0); }
+          }
+          @keyframes mochiTwinkle {
+            0%, 100% { opacity: 0.22; transform: scale(0.85); }
+            50% { opacity: 0.95; transform: scale(1.2); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+      return;
+    }
+
+    // Native Android/iOS hardware-thread animations (runs on UI thread, never blocks JS)
+    const loop1 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(drift1, {
+          toValue: 1,
+          duration: 9000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(drift1, {
+          toValue: 0,
+          duration: 9000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const loop2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(drift2, {
+          toValue: 1,
+          duration: 12000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(drift2, {
+          toValue: 0,
+          duration: 12000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const loop3 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(twinkle, {
+          toValue: 0.95,
+          duration: 2200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(twinkle, {
+          toValue: 0.25,
+          duration: 2200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    loop1.start();
+    loop2.start();
+    loop3.start();
+    return () => {
+      loop1.stop();
+      loop2.stop();
+      loop3.stop();
+    };
+  }, [drift1, drift2, twinkle]);
+
+  const tx1 = drift1.interpolate({ inputRange: [0, 1], outputRange: [-32, 42] });
+  const ty1 = drift1.interpolate({ inputRange: [0, 1], outputRange: [-18, 26] });
+  const tx2 = drift2.interpolate({ inputRange: [0, 1], outputRange: [36, -36] });
+  const ty2 = drift2.interpolate({ inputRange: [0, 1], outputRange: [22, -22] });
+
   const isDark = themeMode === 'dark';
+  const isWeb = Platform.OS === 'web';
+
+  const orb1AnimStyle = isWeb
+    ? ({ animation: 'mochiFloatSlow 14s ease-in-out infinite', willChange: 'transform' } as any)
+    : { transform: [{ translateX: tx1 }, { translateY: ty1 }] };
+
+  const orb2AnimStyle = isWeb
+    ? ({ animation: 'mochiFloatReverse 18s ease-in-out infinite', willChange: 'transform' } as any)
+    : { transform: [{ translateX: tx2 }, { translateY: ty2 }] };
+
+  const cloudAnimStyle = isWeb
+    ? ({ animation: 'mochiCloudDrift 11s ease-in-out infinite', willChange: 'transform' } as any)
+    : { transform: [{ translateX: tx1 }] };
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {isDark ? (
         <>
-          <View
+          {/* 🌙 Moving Midnight Indigo & Nebula Glow Orbs */}
+          <Animated.View
             style={[
               styles.auroraOrb,
               {
@@ -143,11 +259,12 @@ const AmbientBackground = ({
                 top: isCounter ? '44%' : -60,
                 right: -70,
                 backgroundColor: isListening ? '#2EC4B6' : '#4361EE',
-                opacity: 0.22,
+                opacity: 0.26,
               },
+              orb1AnimStyle,
             ]}
           />
-          <View
+          <Animated.View
             style={[
               styles.auroraOrb,
               {
@@ -157,34 +274,49 @@ const AmbientBackground = ({
                 bottom: -60,
                 left: -70,
                 backgroundColor: '#7209B7',
-                opacity: 0.18,
+                opacity: 0.22,
               },
+              orb2AnimStyle,
             ]}
           />
+          {/* Floating Crescent Moon */}
           {!isCounter && (
-            <View style={{ position: 'absolute', top: 48, right: 28, opacity: 0.2 }}>
+            <Animated.View
+              style={[
+                { position: 'absolute', top: 48, right: 28, opacity: 0.26 },
+                cloudAnimStyle,
+              ]}
+            >
               <Ionicons name="moon" size={64} color="#FFD166" />
-            </View>
+            </Animated.View>
           )}
+          {/* ✨ Twinkling Night Stars */}
           {STAR_POSITIONS.map((star, idx) => (
-            <View
+            <Animated.View
               key={idx}
-              style={{
-                position: 'absolute',
-                top: star.top,
-                left: star.left,
-                width: star.size,
-                height: star.size,
-                borderRadius: star.size / 2,
-                backgroundColor: '#FFFFFF',
-                opacity: 0.65,
-              }}
+              style={[
+                {
+                  position: 'absolute',
+                  top: star.top,
+                  left: star.left,
+                  width: star.size,
+                  height: star.size,
+                  borderRadius: star.size / 2,
+                  backgroundColor: '#FFFFFF',
+                },
+                isWeb
+                  ? ({
+                      animation: `mochiTwinkle ${2.8 + (idx % 3) * 0.9}s ease-in-out infinite`,
+                    } as any)
+                  : { opacity: twinkle },
+              ]}
             />
           ))}
         </>
       ) : (
         <>
-          <View
+          {/* ☀️ Moving Sunny Sky & Golden Sun Orbs */}
+          <Animated.View
             style={[
               styles.auroraOrb,
               {
@@ -194,11 +326,12 @@ const AmbientBackground = ({
                 top: isCounter ? '42%' : -75,
                 right: -55,
                 backgroundColor: '#FFD166',
-                opacity: 0.4,
+                opacity: 0.48,
               },
+              orb1AnimStyle,
             ]}
           />
-          <View
+          <Animated.View
             style={[
               styles.auroraOrb,
               {
@@ -208,18 +341,30 @@ const AmbientBackground = ({
                 bottom: -80,
                 left: -70,
                 backgroundColor: '#90E0EF',
-                opacity: 0.4,
+                opacity: 0.45,
               },
+              orb2AnimStyle,
             ]}
           />
+          {/* Drifting Daylight Sun & Clouds */}
           {!isCounter && (
             <>
-              <View style={{ position: 'absolute', top: 42, right: 26, opacity: 0.32 }}>
+              <Animated.View
+                style={[
+                  { position: 'absolute', top: 42, right: 26, opacity: 0.38 },
+                  cloudAnimStyle,
+                ]}
+              >
                 <Ionicons name="partly-sunny" size={72} color="#FF9F1C" />
-              </View>
-              <View style={{ position: 'absolute', top: 110, left: 24, opacity: 0.38 }}>
+              </Animated.View>
+              <Animated.View
+                style={[
+                  { position: 'absolute', top: 110, left: 24, opacity: 0.45 },
+                  orb2AnimStyle,
+                ]}
+              >
                 <Ionicons name="cloud" size={54} color="#FFFFFF" />
-              </View>
+              </Animated.View>
             </>
           )}
         </>
@@ -4786,5 +4931,6 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
 
 
