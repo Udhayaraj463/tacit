@@ -1028,7 +1028,7 @@ export const CounterConversationScreen: React.FC = () => {
     return v.short;
   };
 
-  const speakSentence = (text: string, forcedLang?: string) => {
+    const speakSentence = (text: string, forcedLang?: string) => {
     if (!text) return;
     const cleanText = text.replace(/^[💡🔊✨\s]+/, '').trim();
     const hasChinese = /[\u4e00-\u9fa5]/.test(cleanText);
@@ -1036,13 +1036,43 @@ export const CounterConversationScreen: React.FC = () => {
 
     if (Platform.OS === 'web' && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(cleanText);
-      u.lang = lang;
-      u.rate = 0.95;
-      window.speechSynthesis.speak(u);
+      setTimeout(() => {
+        const u = new SpeechSynthesisUtterance(' ' + cleanText);
+        u.lang = lang;
+        u.rate = 0.95;
+        u.onend = () => {
+          // Refresh mic stream right after TTS finishes so it is 100% ready for clerk's next reply
+          if (isLiveActiveRef.current) {
+            lastTranscriptTimeRef.current = Date.now();
+            startFreshWebRecognizer();
+          }
+        };
+        window.speechSynthesis.speak(u);
+      }, 160);
     } else {
       Speech.stop();
-      Speech.speak(cleanText, { language: lang, rate: 0.95 });
+      setTimeout(() => {
+        Speech.speak(cleanText, {
+          language: lang,
+          rate: 0.95,
+          onDone: () => {
+            if (isLiveActiveRef.current && NativeSpeechModule) {
+              try {
+                const targetLocale = isTranslateMode
+                  ? currentLang === 'en-US'
+                    ? 'zh-TW'
+                    : 'en-US'
+                  : currentLang;
+                NativeSpeechModule.start({
+                  lang: targetLocale,
+                  interimResults: true,
+                  continuous: true,
+                });
+              } catch (e) {}
+            }
+          },
+        });
+      }, 150);
     }
   };
 
@@ -1288,76 +1318,132 @@ export const CounterConversationScreen: React.FC = () => {
       subResult?.remove?.();
       subError?.remove?.();
     };
-  }, [isLiveActive, currentLang, isTranslateMode]);
-
-    const processRecognizedRef = useRef<any>(null);
+  }, [isLiveActive, currentLang, isTranslateMode]);  const processRecognizedRef = useRef<any>(null);
   processRecognizedRef.current = processRecognizedText;
   const isLiveActiveRef = useRef(false);
   isLiveActiveRef.current = isLiveActive;
+  const watchdogTimerRef = useRef<any>(null);
+  const lastTranscriptTimeRef = useRef<number>(Date.now());
 
-  // 🌐 CONTINUOUS LOW-LATENCY WEB SPEECH RECOGNITION (Never resets on card/cloud updates)
-  useEffect(() => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const SpeechRec =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechRec) return;
+  // 🌐 SELF-HEALING ZERO-HANG WEB SPEECH ENGINE (Fresh instance per utterance + Watchdog)
+  const startFreshWebRecognizer = () => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const SpeechRec =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec || !isLiveActiveRef.current) return;
 
+    // Cleanly tear down any previous zombie instance
+    if (webRecRef.current) {
+      try {
+        webRecRef.current.onresult = null;
+        webRecRef.current.onend = null;
+        webRecRef.current.onerror = null;
+        webRecRef.current.abort();
+      } catch (e) {}
+    }
+
+    try {
       const rec = new SpeechRec();
+      // continuous = true with automatic watchdog recycling prevents buffer freeze
       rec.continuous = true;
       rec.interimResults = true;
       rec.maxAlternatives = 1;
       rec.lang = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
 
       rec.onresult = (event: any) => {
-        let interim = '';
-        let finalStr = '';
+        lastTranscriptTimeRef.current = Date.now();
+        let latestInterim = '';
+        let latestFinal = '';
+
+        // Always read the newest result index so old buffer items never block new speech
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const piece = event.results[i][0].transcript;
+          const piece = event.results[i][0]?.transcript || '';
           if (event.results[i].isFinal) {
-            finalStr += piece;
+            latestFinal += piece;
           } else {
-            interim += piece;
+            latestInterim += piece;
           }
         }
-        const textToProcess = (finalStr || interim).trim();
-        if (textToProcess) {
-          // Immediately update subtitle for zero-lag visual feedback
-          setLiveStreamText(textToProcess);
-          processRecognizedRef.current?.(textToProcess, Boolean(finalStr));
+
+        const activeText = (latestFinal || latestInterim).trim();
+        if (activeText) {
+          setLiveStreamText(activeText);
+          processRecognizedRef.current?.(activeText, Boolean(latestFinal));
+        }
+
+        // If the browser accumulated more than 6 results in one session, recycle cleanly so it never lags
+        if (event.results.length > 6 && Boolean(latestFinal)) {
+          try {
+            rec.stop();
+          } catch (e) {}
         }
       };
 
       rec.onerror = (e: any) => {
         if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') {
           setIsLiveActive(false);
+          isLiveActiveRef.current = false;
+          return;
+        }
+        // On no-speech, network, or audio-capture glitch, recycle immediately
+        if (isLiveActiveRef.current) {
+          setTimeout(() => startFreshWebRecognizer(), 150);
         }
       };
 
       rec.onend = () => {
         if (isLiveActiveRef.current) {
-          setTimeout(() => {
-            try {
-              rec.start();
-            } catch (e) {}
-          }, 80);
+          setTimeout(() => startFreshWebRecognizer(), 60);
         }
       };
 
       webRecRef.current = rec;
+      lastTranscriptTimeRef.current = Date.now();
+      rec.start();
+    } catch (err) {
       if (isLiveActiveRef.current) {
-        try {
-          rec.start();
-        } catch (e) {}
+        setTimeout(() => startFreshWebRecognizer(), 300);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (isLiveActive) {
+        startFreshWebRecognizer();
+
+        // Watchdog: If mic session hangs silently for >8 seconds without firing onend, force a fresh instance
+        if (watchdogTimerRef.current) clearInterval(watchdogTimerRef.current);
+        watchdogTimerRef.current = setInterval(() => {
+          if (
+            isLiveActiveRef.current &&
+            Date.now() - lastTranscriptTimeRef.current > 8000
+          ) {
+            lastTranscriptTimeRef.current = Date.now();
+            startFreshWebRecognizer();
+          }
+        }, 3000);
+      } else {
+        if (watchdogTimerRef.current) clearInterval(watchdogTimerRef.current);
+        if (webRecRef.current) {
+          try {
+            webRecRef.current.onend = null;
+            webRecRef.current.abort();
+          } catch (e) {}
+        }
       }
 
       return () => {
-        try {
-          rec.onend = null;
-          rec.stop();
-        } catch (e) {}
+        if (watchdogTimerRef.current) clearInterval(watchdogTimerRef.current);
+        if (webRecRef.current) {
+          try {
+            webRecRef.current.onend = null;
+            webRecRef.current.abort();
+          } catch (e) {}
+        }
       };
     }
-  }, [currentLang, isTranslateMode]);
+  }, [isLiveActive, currentLang, isTranslateMode]);
 
   const toggleLiveListening = async () => {
     const nextState = !isLiveActive;
@@ -1395,7 +1481,7 @@ export const CounterConversationScreen: React.FC = () => {
         setIsLiveActive(true);
         setLiveStreamText(currentLang === 'zh-TW' ? '請開始說話...' : 'Listening for speech...');
         try {
-          webRecRef.current?.start();
+          startFreshWebRecognizer();
         } catch (e) {}
       }
     } else {
@@ -1406,7 +1492,7 @@ export const CounterConversationScreen: React.FC = () => {
         } catch (e) {}
       } else {
         try {
-          webRecRef.current?.stop();
+          webRecRef.current?.abort?.();
         } catch (e) {}
       }
       setLiveStreamText('');
@@ -4700,4 +4786,5 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
 
