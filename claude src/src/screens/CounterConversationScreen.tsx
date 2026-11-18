@@ -884,7 +884,10 @@ export const CounterConversationScreen: React.FC = () => {
   const [clerkDigits, setClerkDigits] = useState('');
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSOSOpen, setIsSOSOpen] = useState(false);
+  const [comboItems, setComboItems] = useState<string[]>([]);
+  const [watchNumber, setWatchNumber] = useState('');
+  const [isNumberModalOpen, setIsNumberModalOpen] = useState(false);
+  const [numberCalledAlert, setNumberCalledAlert] = useState(false);
   const [isTypeToClerkOpen, setIsTypeToClerkOpen] = useState(false);
   const [customTypeInput, setCustomTypeInput] = useState('');
 
@@ -1173,7 +1176,32 @@ export const CounterConversationScreen: React.FC = () => {
     return v.short;
   };
 
-    const speakSentence = (text: string, forcedLang?: string) => {
+      const playAttentionChime = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const playTone = (freq: number, start: number, dur: number) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+          gain.gain.setValueAtTime(0.22, ctx.currentTime + start);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + start);
+          osc.stop(ctx.currentTime + start + dur);
+        };
+        playTone(659.25, 0, 0.22); // E5
+        playTone(880.0, 0.18, 0.38); // A5
+      } catch (e) {}
+    } else {
+      triggerHaptic([0, 70, 50, 70]);
+    }
+  };
+  const speakSentence = (text: string, forcedLang?: string) => {
     if (!text) return;
     const cleanText = text.replace(/^[💡🔊✨\s]+/, '').trim();
     const hasChinese = /[\u4e00-\u9fa5]/.test(cleanText);
@@ -1338,7 +1366,11 @@ export const CounterConversationScreen: React.FC = () => {
       setLastHeardQuestion(rawText.trim());
     }
 
-    const lowerRaw = rawText.toLowerCase();
+        const lowerRaw = rawText.toLowerCase();
+    if (watchNumber && rawText.includes(watchNumber)) {
+      setNumberCalledAlert(true);
+      triggerHaptic([0, 150, 80, 150, 80, 200]);
+    }
     const lowerTrans = translated.toLowerCase();
 
     const currentVenueCards = cardsData.filter(
@@ -1713,7 +1745,10 @@ export const CounterConversationScreen: React.FC = () => {
       /手機條碼|Phone Barcode/.test(reply.text || '');
 
     setShowClerkBarcode(shouldShowBarcode);
-    setChosenOption(optObj || reply);
+        setChosenOption(optObj || reply);
+    if (displayToClerk && displayToClerk.length <= 8 && !shouldShowBarcode) {
+      setComboItems((prev) => (prev.includes(displayToClerk) ? prev : [...prev.slice(-4), displayToClerk]));
+    }
     setClerkLabel(
       shouldShowBarcode
         ? currentLang === 'zh-TW'
@@ -3156,6 +3191,78 @@ export const CounterConversationScreen: React.FC = () => {
             </View>
           )}
 
+          {/* 🎉 NUMBER CALLED ALERT BANNER */}
+          {numberCalledAlert && (
+            <Pressable
+              style={{
+                backgroundColor: THEME.orange,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderRadius: 14,
+                marginBottom: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+              onPress={() => {
+                setNumberCalledAlert(false);
+                setWatchNumber('');
+              }}
+            >
+              <Text style={{ color: '#000', fontSize: fs(17), fontWeight: '900' }}>
+                🎉 到您了！櫃檯正在叫 #{watchNumber} 號
+              </Text>
+              <Text style={{ color: '#000', fontSize: fs(13), fontWeight: '800' }}>關閉 ✕</Text>
+            </Pressable>
+          )}
+
+          {/* 🧋 MULTI-SELECT ORDER COMBO BUILDER TRAY */}
+          {comboItems.length > 1 && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: THEME.surface,
+                borderColor: THEME.orange,
+                borderWidth: 1,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                marginBottom: 8,
+                gap: 8,
+              }}
+            >
+              <Text
+                style={{ color: THEME.text, fontSize: fs(14), fontWeight: '700', flex: 1 }}
+                numberOfLines={1}
+              >
+                ✨ 組合：{comboItems.join(' · ')}
+              </Text>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: THEME.orange,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 8,
+                }}
+                onPress={() => {
+                  const fullSentence = comboItems.join('、');
+                  setClerkLabel(currentLang === 'zh-TW' ? '我的完整點餐' : 'My Full Order');
+                  setClerkMessage(fullSentence);
+                  speakSentence(fullSentence, 'zh-TW');
+                }}
+              >
+                <Text style={{ color: '#000', fontSize: fs(13), fontWeight: '800' }}>
+                  🔊 整句唸出
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setComboItems([])} style={{ paddingHorizontal: 4 }}>
+                <Text style={{ color: THEME.textMuted, fontSize: fs(14) }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {smartReplies.length > 0 && (
             <ScrollView
               horizontal
@@ -3547,31 +3654,6 @@ export const CounterConversationScreen: React.FC = () => {
               </View>
             );
           })}
-
-          <TouchableOpacity
-            style={[
-              styles.questionRow,
-              { borderBottomColor: THEME.border, paddingHorizontal: 12, marginTop: 8 },
-            ]}
-            onPress={() => setIsSOSOpen(true)}
-          >
-            <View style={styles.questionTextCol}>
-              <Text
-                style={[
-                  styles.questionTitle,
-                  { color: THEME.danger, fontSize: fs(19) },
-                ]}
-              >
-                🚨 {currentLang === 'zh-TW' ? '緊急醫療求助 (SOS)' : 'Medical SOS'}
-              </Text>
-              <Text style={[styles.questionSub, { color: THEME.textMuted, fontSize: fs(14) }]}>
-                {currentLang === 'zh-TW' ? '顯示緊急醫療卡並播放求助語音' : 'Show emergency card & speak'}
-              </Text>
-            </View>
-            <Text style={[styles.questionArrow, { color: THEME.textMuted, fontSize: fs(24) }]}>
-              ›
-            </Text>
-          </TouchableOpacity>
         </ScrollView>
 
         {/* Bottom Action Bar */}
@@ -4002,53 +4084,82 @@ export const CounterConversationScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-
-      {/* Modal: SOS Emergency */}
-      <Modal visible={isSOSOpen} transparent animationType="slide">
+      </Modal>      {/* Modal: Receipt Number Call Watcher (叫號提醒) */}
+      <Modal visible={isNumberModalOpen} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={{ width: '90%', maxWidth: 460 }}>
-            <View style={styles.sosCardFull}>
-              <View style={styles.sosCardHeader}>
-                <Text style={{ fontSize: fs(24) }}>🚨</Text>
-                <Text style={[styles.sosTitle, { fontSize: fs(22) }]}>
-                  {currentLang === 'zh-TW' ? '緊急醫療求助' : 'Medical SOS'}
-                </Text>
-              </View>
-              <View style={styles.sosInfoBox}>
-                <View style={styles.sosInfoRow}>
-                  <Text style={[styles.sosTextKey, { fontSize: fs(15) }]}>Name:</Text>
-                  <Text style={[styles.sosTextValue, { fontSize: fs(15) }]}>
-                    Udhayaraj (Raj)
-                  </Text>
-                </View>
-                <View style={styles.sosInfoRow}>
-                  <Text style={[styles.sosTextKey, { fontSize: fs(15) }]}>Blood:</Text>
-                  <Text style={[styles.sosTextValue, { fontSize: fs(15) }]}>O+</Text>
-                </View>
-                <Text style={[styles.sosQuote, { fontSize: fs(15) }]}>
-                  "I am having a medical emergency. Please read my screen."
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.sosSpeakBtn}
-                onPress={() =>
-                  speakSentence('我現在有緊急醫療狀況，請幫助我。', 'zh-TW')
+          <View
+            style={[
+              styles.typeModalCard,
+              { backgroundColor: THEME.surfaceSolid, borderColor: THEME.border },
+            ]}
+          >
+            <Text
+              style={[
+                styles.settingsModalTitle,
+                { color: THEME.text, fontSize: fs(20), marginBottom: 6 },
+              ]}
+            >
+              🔔 {currentLang === 'zh-TW' ? '號碼牌叫號提醒' : 'Order Number Watcher'}
+            </Text>
+            <Text style={{ color: THEME.textMuted, fontSize: fs(13), marginBottom: 12 }}>
+              {currentLang === 'zh-TW'
+                ? '輸入您的取餐號碼（例如：68），開啟語音監聽後，店員叫號時畫面會自動閃爍提醒您：'
+                : 'Enter your receipt number (e.g., 68). When the clerk calls it, your screen will flash:'}
+            </Text>
+            <TextInput
+              style={[
+                styles.inputField,
+                {
+                  backgroundColor: THEME.bg,
+                  color: THEME.text,
+                  borderColor: THEME.border,
+                  fontSize: fs(24),
+                  fontWeight: '900',
+                  textAlign: 'center',
+                },
+              ]}
+              placeholder="例如：68"
+              placeholderTextColor={THEME.textMuted}
+              keyboardType="numeric"
+              value={watchNumber}
+              onChangeText={(t) => {
+                setWatchNumber(t.trim());
+                setNumberCalledAlert(false);
+              }}
+            />
+            <TouchableOpacity
+              style={styles.sendBtn}
+              onPress={() => {
+                setIsNumberModalOpen(false);
+                if (watchNumber && !isLiveActive) {
+                  toggleLiveListening();
                 }
-              >
-                <Text style={[styles.sosSpeakBtnText, { fontSize: fs(17) }]}>
-                  🔊 播放求助語音
-                </Text>
-              </TouchableOpacity>
+              }}
+            >
+              <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
+                {watchNumber
+                  ? currentLang === 'zh-TW'
+                    ? `✓ 開始監聽 #${watchNumber} 號`
+                    : `✓ Watch #${watchNumber}`
+                  : currentLang === 'zh-TW'
+                  ? '完成'
+                  : 'Done'}
+              </Text>
+            </TouchableOpacity>
+            {!!watchNumber && (
               <TouchableOpacity
-                style={styles.sosCloseBtn}
-                onPress={() => setIsSOSOpen(false)}
+                style={[styles.closeBtn, { marginTop: 8 }]}
+                onPress={() => {
+                  setWatchNumber('');
+                  setNumberCalledAlert(false);
+                  setIsNumberModalOpen(false);
+                }}
               >
-                <Text style={[styles.sosCloseBtnText, { fontSize: fs(15) }]}>
-                  關閉 (Close)
+                <Text style={[styles.closeBtnText, { color: THEME.danger, fontSize: fs(14) }]}>
+                  {currentLang === 'zh-TW' ? '清除號碼' : 'Clear Number'}
                 </Text>
               </TouchableOpacity>
-            </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -4931,6 +5042,7 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
 
 
 
