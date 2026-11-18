@@ -128,85 +128,12 @@ const AmbientBackground = ({
   isListening?: boolean;
   isCounter?: boolean;
 }) => {
-  const drift1 = useRef(new Animated.Value(0)).current;
-  const drift2 = useRef(new Animated.Value(0)).current;
-  const twinkle = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const loop1 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(drift1, {
-          toValue: 1,
-          duration: 10000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(drift1, {
-          toValue: 0,
-          duration: 10000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const loop2 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(drift2, {
-          toValue: 1,
-          duration: 13000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(drift2, {
-          toValue: 0,
-          duration: 13000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const loop3 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(twinkle, {
-          toValue: 1,
-          duration: isListening ? 900 : 2600,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(twinkle, {
-          toValue: 0.25,
-          duration: isListening ? 900 : 2600,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    loop1.start();
-    loop2.start();
-    loop3.start();
-    return () => {
-      loop1.stop();
-      loop2.stop();
-      loop3.stop();
-    };
-  }, [isListening, drift1, drift2, twinkle]);
-
-  const tx1 = drift1.interpolate({ inputRange: [0, 1], outputRange: [-35, 45] });
-  const ty1 = drift1.interpolate({ inputRange: [0, 1], outputRange: [-20, 30] });
-  const tx2 = drift2.interpolate({ inputRange: [0, 1], outputRange: [40, -40] });
-  const ty2 = drift2.interpolate({ inputRange: [0, 1], outputRange: [25, -25] });
-
   const isDark = themeMode === 'dark';
-
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {isDark ? (
         <>
-          {/* 🌙 Midnight Indigo Glow & Nebula Orbs */}
-          <Animated.View
+          <View
             style={[
               styles.auroraOrb,
               {
@@ -216,12 +143,11 @@ const AmbientBackground = ({
                 top: isCounter ? '44%' : -60,
                 right: -70,
                 backgroundColor: isListening ? '#2EC4B6' : '#4361EE',
-                opacity: 0.25,
-                transform: [{ translateX: tx1 }, { translateY: ty1 }],
+                opacity: 0.22,
               },
             ]}
           />
-          <Animated.View
+          <View
             style={[
               styles.auroraOrb,
               {
@@ -231,28 +157,17 @@ const AmbientBackground = ({
                 bottom: -60,
                 left: -70,
                 backgroundColor: '#7209B7',
-                opacity: 0.2,
-                transform: [{ translateX: tx2 }, { translateY: ty2 }],
+                opacity: 0.18,
               },
             ]}
           />
-          {/* Glowing Crescent Moon Accent on Home Screen */}
           {!isCounter && (
-            <Animated.View
-              style={{
-                position: 'absolute',
-                top: 48,
-                right: 28,
-                opacity: 0.22,
-                transform: [{ translateY: ty1 }],
-              }}
-            >
+            <View style={{ position: 'absolute', top: 48, right: 28, opacity: 0.2 }}>
               <Ionicons name="moon" size={64} color="#FFD166" />
-            </Animated.View>
+            </View>
           )}
-          {/* ✨ Twinkling Night Stars */}
           {STAR_POSITIONS.map((star, idx) => (
-            <Animated.View
+            <View
               key={idx}
               style={{
                 position: 'absolute',
@@ -262,18 +177,14 @@ const AmbientBackground = ({
                 height: star.size,
                 borderRadius: star.size / 2,
                 backgroundColor: '#FFFFFF',
-                opacity: twinkle,
-                shadowColor: '#FFF',
-                shadowOpacity: 0.9,
-                shadowRadius: 4,
+                opacity: 0.65,
               }}
             />
           ))}
         </>
       ) : (
         <>
-          {/* ☀️ Sunny Cerulean Sky & Warm Golden Sun Glow */}
-          <Animated.View
+          <View
             style={[
               styles.auroraOrb,
               {
@@ -283,12 +194,11 @@ const AmbientBackground = ({
                 top: isCounter ? '42%' : -75,
                 right: -55,
                 backgroundColor: '#FFD166',
-                opacity: 0.45,
-                transform: [{ translateX: tx1 }, { translateY: ty1 }],
+                opacity: 0.4,
               },
             ]}
           />
-          <Animated.View
+          <View
             style={[
               styles.auroraOrb,
               {
@@ -298,36 +208,18 @@ const AmbientBackground = ({
                 bottom: -80,
                 left: -70,
                 backgroundColor: '#90E0EF',
-                opacity: 0.45,
-                transform: [{ translateX: tx2 }, { translateY: ty2 }],
+                opacity: 0.4,
               },
             ]}
           />
-          {/* Drifting Daylight Clouds & Sun Icon */}
           {!isCounter && (
             <>
-              <Animated.View
-                style={{
-                  position: 'absolute',
-                  top: 42,
-                  right: 26,
-                  opacity: 0.35,
-                  transform: [{ translateX: tx1 }],
-                }}
-              >
+              <View style={{ position: 'absolute', top: 42, right: 26, opacity: 0.32 }}>
                 <Ionicons name="partly-sunny" size={72} color="#FF9F1C" />
-              </Animated.View>
-              <Animated.View
-                style={{
-                  position: 'absolute',
-                  top: 110,
-                  left: 24,
-                  opacity: 0.4,
-                  transform: [{ translateX: tx2 }],
-                }}
-              >
+              </View>
+              <View style={{ position: 'absolute', top: 110, left: 24, opacity: 0.38 }}>
                 <Ionicons name="cloud" size={54} color="#FFFFFF" />
-              </Animated.View>
+              </View>
             </>
           )}
         </>
@@ -664,8 +556,8 @@ const DEFAULT_CARDS_DATA = [
     keywords: ['加料', '珍珠', '波霸', '椰果', '仙草', '布丁', 'topping', 'boba', 'pearl'],
     options: [
       { labels: { 'zh-TW': '不用加料', 'en-US': 'No Toppings' }, subLabels: { 'zh-TW': '原味即可', 'en-US': 'Plain drink' }, tts: '不用加料' },
-      { labels: { 'zh-TW': '加珍珠', 'en-US': 'Add Boba / Pearls' }, subLabels: { 'zh-TW': '波霸/珍珠', 'en-US': 'Tapioca pearls' }, tts: '我要加珍珠' },
-      { labels: { 'zh-TW': '加椰果', 'en-US': 'Add Coconut Jelly' }, subLabels: { 'zh-TW': '椰果配料', 'en-US': 'Nata de coco' }, tts: '我要加椰果' },
+      { labels: { 'zh-TW': '加珍珠', 'en-US': 'Add Boba / Pearls' }, subLabels: { 'zh-TW': '波霸/珍珠', 'en-US': 'Tapioca pearls' }, tts: '加珍珠' },
+      { labels: { 'zh-TW': '加椰果', 'en-US': 'Add Coconut Jelly' }, subLabels: { 'zh-TW': '椰果配料', 'en-US': 'Nata de coco' }, tts: '加椰果' },
     ],
   },
   {
@@ -675,8 +567,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '第二杯半價要嗎？', 'en-US': '2nd cup half price?' },
     keywords: ['第二杯', '半價', '兩杯', '優惠', '寄杯', 'second cup', 'discount'],
     options: [
-      { labels: { 'zh-TW': '不用，一杯就好', 'en-US': 'No, just one' }, subLabels: { 'zh-TW': '買一杯即可', 'en-US': 'Single cup only' }, tts: '不用，一杯就好' },
-      { labels: { 'zh-TW': '好，我要兩杯', 'en-US': 'Yes, two cups' }, subLabels: { 'zh-TW': '搭配優惠', 'en-US': 'Take the deal' }, tts: '好，那我要兩杯' },
+      { labels: { 'zh-TW': '不用，一杯就好', 'en-US': 'No, just one' }, subLabels: { 'zh-TW': '買一杯即可', 'en-US': 'Single cup only' }, tts: '不用' },
+      { labels: { 'zh-TW': '好，我要兩杯', 'en-US': 'Yes, two cups' }, subLabels: { 'zh-TW': '搭配優惠', 'en-US': 'Take the deal' }, tts: '要兩杯' },
     ],
   },
   {
@@ -697,8 +589,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '白飯要多少？', 'en-US': 'How much rice?' },
     keywords: ['白飯', '飯要', '半碗', '飯量', '紫米', 'rice'],
     options: [
-      { labels: { 'zh-TW': '正常飯', 'en-US': 'Normal Rice' }, subLabels: { 'zh-TW': '標準飯量', 'en-US': 'Standard portion' }, tts: '飯正常' },
-      { labels: { 'zh-TW': '少飯', 'en-US': 'Less Rice' }, subLabels: { 'zh-TW': '半碗飯', 'en-US': 'Half portion' }, tts: '飯少一點' },
+      { labels: { 'zh-TW': '正常飯', 'en-US': 'Normal Rice' }, subLabels: { 'zh-TW': '標準飯量', 'en-US': 'Standard portion' }, tts: '正常飯' },
+      { labels: { 'zh-TW': '少飯', 'en-US': 'Less Rice' }, subLabels: { 'zh-TW': '半碗飯', 'en-US': 'Half portion' }, tts: '少飯' },
       { labels: { 'zh-TW': '不要飯', 'en-US': 'No Rice' }, subLabels: { 'zh-TW': '只要菜', 'en-US': 'Dishes only' }, tts: '不要飯' },
     ],
   },
@@ -767,7 +659,7 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '需要袋子嗎？', 'en-US': 'Do you need a bag?' },
     keywords: ['袋子', '提袋', '購物袋', '塑膠袋', 'bag', 'plastic bag'],
     options: [
-      { labels: { 'zh-TW': '要袋子', 'en-US': 'Need a Bag' }, subLabels: { 'zh-TW': '加購購物袋', 'en-US': 'Buy a bag' }, tts: '我要買一個袋子' },
+      { labels: { 'zh-TW': '要袋子', 'en-US': 'Need a Bag' }, subLabels: { 'zh-TW': '加購購物袋', 'en-US': 'Buy a bag' }, tts: '要袋子' },
       { labels: { 'zh-TW': '不用袋子', 'en-US': 'No Bag' }, subLabels: { 'zh-TW': '自己拿或自備袋子', 'en-US': 'I have my own' }, tts: '不用袋子' },
     ],
   },
@@ -778,9 +670,9 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '請問怎麼付款？', 'en-US': 'How would you like to pay?' },
     keywords: ['現金', '刷卡', '付款', '支付', '悠遊卡', 'line pay', 'apple pay', 'cash', 'card', 'pay'],
     options: [
-      { labels: { 'zh-TW': '付現', 'en-US': 'Cash' }, subLabels: { 'zh-TW': '現金付款', 'en-US': 'Pay with cash' }, tts: '我付現金' },
-      { labels: { 'zh-TW': '刷卡 / 行動支付', 'en-US': 'Card / Mobile Pay' }, subLabels: { 'zh-TW': 'Apple Pay / Line Pay', 'en-US': 'Contactless payment' }, tts: '我用刷卡或行動支付' },
-      { labels: { 'zh-TW': '悠遊卡', 'en-US': 'EasyCard' }, subLabels: { 'zh-TW': '感應悠遊卡', 'en-US': 'Tap EasyCard' }, tts: '我用悠遊卡付款' },
+      { labels: { 'zh-TW': '付現', 'en-US': 'Cash' }, subLabels: { 'zh-TW': '現金付款', 'en-US': 'Pay with cash' }, tts: '付現' },
+      { labels: { 'zh-TW': '刷卡 / 行動支付', 'en-US': 'Card / Mobile Pay' }, subLabels: { 'zh-TW': 'Apple Pay / Line Pay', 'en-US': 'Contactless payment' }, tts: '刷卡' },
+      { labels: { 'zh-TW': '悠遊卡', 'en-US': 'EasyCard' }, subLabels: { 'zh-TW': '感應悠遊卡', 'en-US': 'Tap EasyCard' }, tts: '悠遊卡' },
     ],
   },
 ];
@@ -791,6 +683,22 @@ const BARCODE_WEIGHTS = [
   3, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2, 1, 3, 2, 1, 1, 3, 1, 2, 2, 1, 3, 1, 2, 1, 1, 3, 2, 1, 3,
 ];
 
+const sanitizeCardsList = (list: any[]) => {
+  if (!Array.isArray(list)) return list;
+  return list.map((card) => ({
+    ...card,
+    options: Array.isArray(card.options)
+      ? card.options.map((opt: any) => {
+          const rawLabel = opt?.labels?.['zh-TW'] || '';
+          const cleanTts = (opt?.tts || rawLabel).replace(/，?謝謝/g, '').trim();
+          return {
+            ...opt,
+            tts: card.isCustom ? cleanTts : (rawLabel || cleanTts),
+          };
+        })
+      : [],
+  }));
+};
 export const CounterConversationScreen: React.FC = () => {
   useKeepAwake();
 
@@ -901,7 +809,7 @@ export const CounterConversationScreen: React.FC = () => {
         }
       }
       if (Array.isArray(data?.cards) && data.cards.length > 0) {
-        setCardsData(data.cards);
+        setCardsData(sanitizeCardsList(data.cards));
         if (Platform.OS === 'web') {
           localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(data.cards));
         } else {
@@ -948,7 +856,7 @@ export const CounterConversationScreen: React.FC = () => {
         }
         if (savedCards) {
           const parsed = JSON.parse(savedCards);
-          if (Array.isArray(parsed) && parsed.length > 0) setCardsData(parsed);
+          if (Array.isArray(parsed) && parsed.length > 0) setCardsData(sanitizeCardsList(parsed));
         }
         if (savedWallpapers) {
           setCustomWallpapers(JSON.parse(savedWallpapers));
@@ -1380,9 +1288,14 @@ export const CounterConversationScreen: React.FC = () => {
       subResult?.remove?.();
       subError?.remove?.();
     };
-  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id, cardsData]);
+  }, [isLiveActive, currentLang, isTranslateMode]);
 
-  // 🌐 WEB SPEECH RECOGNITION
+    const processRecognizedRef = useRef<any>(null);
+  processRecognizedRef.current = processRecognizedText;
+  const isLiveActiveRef = useRef(false);
+  isLiveActiveRef.current = isLiveActive;
+
+  // 🌐 CONTINUOUS LOW-LATENCY WEB SPEECH RECOGNITION (Never resets on card/cloud updates)
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const SpeechRec =
@@ -1392,33 +1305,59 @@ export const CounterConversationScreen: React.FC = () => {
       const rec = new SpeechRec();
       rec.continuous = true;
       rec.interimResults = true;
+      rec.maxAlternatives = 1;
       rec.lang = isTranslateMode ? (currentLang === 'en-US' ? 'zh-TW' : 'en-US') : currentLang;
 
-      rec.onresult = async (event: any) => {
+      rec.onresult = (event: any) => {
         let interim = '';
+        let finalStr = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          interim += event.results[i][0].transcript;
+          const piece = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalStr += piece;
+          } else {
+            interim += piece;
+          }
         }
-        const isFinal = event.results[event.results.length - 1]?.isFinal || false;
-        processRecognizedText(interim.trim(), isFinal);
+        const textToProcess = (finalStr || interim).trim();
+        if (textToProcess) {
+          // Immediately update subtitle for zero-lag visual feedback
+          setLiveStreamText(textToProcess);
+          processRecognizedRef.current?.(textToProcess, Boolean(finalStr));
+        }
+      };
+
+      rec.onerror = (e: any) => {
+        if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') {
+          setIsLiveActive(false);
+        }
       };
 
       rec.onend = () => {
-        if (isLiveActive) {
-          try {
-            rec.start();
-          } catch (e) {}
+        if (isLiveActiveRef.current) {
+          setTimeout(() => {
+            try {
+              rec.start();
+            } catch (e) {}
+          }, 80);
         }
       };
 
       webRecRef.current = rec;
-      if (isLiveActive) {
+      if (isLiveActiveRef.current) {
         try {
           rec.start();
         } catch (e) {}
       }
+
+      return () => {
+        try {
+          rec.onend = null;
+          rec.stop();
+        } catch (e) {}
+      };
     }
-  }, [isLiveActive, currentLang, isTranslateMode, activeVenue.id, cardsData]);
+  }, [currentLang, isTranslateMode]);
 
   const toggleLiveListening = async () => {
     const nextState = !isLiveActive;
@@ -1530,7 +1469,7 @@ export const CounterConversationScreen: React.FC = () => {
   };
 
   const handleSelectOption = (reply: any, optObj?: any) => {
-    const displayToClerk = reply.clerkText || optObj?.tts || optObj?.labels?.['zh-TW'] || reply.text;
+    const displayToClerk = (optObj?.labels?.['zh-TW'] || reply.clerkText || reply.text || '').replace(/，?謝謝/g, '').trim();
     if (optObj?.kind === 'type') {
       setIsTypeToClerkOpen(true);
       return;
@@ -3366,7 +3305,7 @@ export const CounterConversationScreen: React.FC = () => {
                           styles.rowSpeakerIconBtn,
                           { backgroundColor: THEME.bg, borderColor: THEME.border },
                         ]}
-                        onPress={() => speakSentence(opt.tts || opt.labels['zh-TW'], 'zh-TW')}
+                        onPress={() => speakSentence(opt.labels['zh-TW'], 'zh-TW')}
                         accessibilityLabel={`發音：${mainLabel}`}
                       >
                         <Ionicons name="volume-high-outline" size={fs(18)} color={THEME.text} />
@@ -4761,3 +4700,4 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
