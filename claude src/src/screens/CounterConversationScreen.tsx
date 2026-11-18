@@ -98,7 +98,7 @@ export type SupportedLang = 'en-US' | 'zh-TW';
 
 const STORAGE_KEYS = {
   VENUES: 'mochi_custom_venues_v5',
-  CARDS: 'mochi_custom_cards_v5',
+  CARDS: 'mochi_custom_cards_v6',
   WALLPAPERS: 'mochi_wallpapers_v5',
   FONT_SCALE: 'mochi_font_scale_v5',
   THEME_MODE: 'mochi_theme_mode_v5',
@@ -614,9 +614,9 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '冰的還是熱的？', 'en-US': 'Iced or Hot?' },
     keywords: ['冰的', '熱的', '溫的', '冰塊', 'iced', 'hot', 'warm'],
     options: [
-      { labels: { 'zh-TW': '冰的', 'en-US': 'Iced' }, subLabels: { 'zh-TW': '冷飲', 'en-US': 'Cold drink' }, tts: '冰的，謝謝' },
-      { labels: { 'zh-TW': '熱的', 'en-US': 'Hot' }, subLabels: { 'zh-TW': '熱飲', 'en-US': 'Hot drink' }, tts: '熱的，謝謝' },
-      { labels: { 'zh-TW': '溫的', 'en-US': 'Warm' }, subLabels: { 'zh-TW': '溫飲', 'en-US': 'Warm drink' }, tts: '溫的，謝謝' },
+      { labels: { 'zh-TW': '冰的', 'en-US': 'Iced' }, subLabels: { 'zh-TW': '冷飲', 'en-US': 'Cold drink' }, tts: '冰的' },
+      { labels: { 'zh-TW': '熱的', 'en-US': 'Hot' }, subLabels: { 'zh-TW': '熱飲', 'en-US': 'Hot drink' }, tts: '熱的' },
+      { labels: { 'zh-TW': '溫的', 'en-US': 'Warm' }, subLabels: { 'zh-TW': '溫飲', 'en-US': 'Warm drink' }, tts: '溫的' },
     ],
   },
   {
@@ -652,8 +652,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '大杯還是中杯？', 'en-US': 'Large or Medium cup?' },
     keywords: ['大杯', '中杯', '小杯', '特大杯', '尺寸', 'size', 'large', 'medium'],
     options: [
-      { labels: { 'zh-TW': '大杯', 'en-US': 'Large' }, subLabels: { 'zh-TW': '大杯容量', 'en-US': 'Large cup' }, tts: '大杯，謝謝' },
-      { labels: { 'zh-TW': '中杯', 'en-US': 'Medium' }, subLabels: { 'zh-TW': '中杯容量', 'en-US': 'Medium cup' }, tts: '中杯，謝謝' },
+      { labels: { 'zh-TW': '大杯', 'en-US': 'Large' }, subLabels: { 'zh-TW': '大杯容量', 'en-US': 'Large cup' }, tts: '大杯' },
+      { labels: { 'zh-TW': '中杯', 'en-US': 'Medium' }, subLabels: { 'zh-TW': '中杯容量', 'en-US': 'Medium cup' }, tts: '中杯' },
     ],
   },
   {
@@ -663,9 +663,9 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '要加料嗎？', 'en-US': 'Any toppings?' },
     keywords: ['加料', '珍珠', '波霸', '椰果', '仙草', '布丁', 'topping', 'boba', 'pearl'],
     options: [
-      { labels: { 'zh-TW': '不用加料', 'en-US': 'No Toppings' }, subLabels: { 'zh-TW': '原味即可', 'en-US': 'Plain drink' }, tts: '不用加料，謝謝' },
-      { labels: { 'zh-TW': '加珍珠', 'en-US': 'Add Boba / Pearls' }, subLabels: { 'zh-TW': '波霸/珍珠', 'en-US': 'Tapioca pearls' }, tts: '我要加珍珠，謝謝' },
-      { labels: { 'zh-TW': '加椰果', 'en-US': 'Add Coconut Jelly' }, subLabels: { 'zh-TW': '椰果配料', 'en-US': 'Nata de coco' }, tts: '我要加椰果，謝謝' },
+      { labels: { 'zh-TW': '不用加料', 'en-US': 'No Toppings' }, subLabels: { 'zh-TW': '原味即可', 'en-US': 'Plain drink' }, tts: '不用加料' },
+      { labels: { 'zh-TW': '加珍珠', 'en-US': 'Add Boba / Pearls' }, subLabels: { 'zh-TW': '波霸/珍珠', 'en-US': 'Tapioca pearls' }, tts: '我要加珍珠' },
+      { labels: { 'zh-TW': '加椰果', 'en-US': 'Add Coconut Jelly' }, subLabels: { 'zh-TW': '椰果配料', 'en-US': 'Nata de coco' }, tts: '我要加椰果' },
     ],
   },
   {
@@ -675,8 +675,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '第二杯半價要嗎？', 'en-US': '2nd cup half price?' },
     keywords: ['第二杯', '半價', '兩杯', '優惠', '寄杯', 'second cup', 'discount'],
     options: [
-      { labels: { 'zh-TW': '不用，一杯就好', 'en-US': 'No, just one' }, subLabels: { 'zh-TW': '買一杯即可', 'en-US': 'Single cup only' }, tts: '不用，一杯就好，謝謝' },
-      { labels: { 'zh-TW': '好，我要兩杯', 'en-US': 'Yes, two cups' }, subLabels: { 'zh-TW': '搭配優惠', 'en-US': 'Take the deal' }, tts: '好，那我要兩杯，謝謝' },
+      { labels: { 'zh-TW': '不用，一杯就好', 'en-US': 'No, just one' }, subLabels: { 'zh-TW': '買一杯即可', 'en-US': 'Single cup only' }, tts: '不用，一杯就好' },
+      { labels: { 'zh-TW': '好，我要兩杯', 'en-US': 'Yes, two cups' }, subLabels: { 'zh-TW': '搭配優惠', 'en-US': 'Take the deal' }, tts: '好，那我要兩杯' },
     ],
   },
   {
@@ -686,8 +686,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '要加熱嗎？', 'en-US': 'Heat it up?' },
     keywords: ['加熱', '微波', '熱一下', '要熱嗎', '烤一下', 'heat', 'microwave', 'warm up'],
     options: [
-      { labels: { 'zh-TW': '要加熱', 'en-US': 'Yes, heat it up' }, subLabels: { 'zh-TW': '請幫我微波加熱', 'en-US': 'Microwave please' }, tts: '要加熱，謝謝' },
-      { labels: { 'zh-TW': '不用加熱', 'en-US': 'No need' }, subLabels: { 'zh-TW': '直接拿走', 'en-US': 'Keep as is' }, tts: '不用加熱，謝謝' },
+      { labels: { 'zh-TW': '要加熱', 'en-US': 'Yes, heat it up' }, subLabels: { 'zh-TW': '請幫我微波加熱', 'en-US': 'Microwave please' }, tts: '要加熱' },
+      { labels: { 'zh-TW': '不用加熱', 'en-US': 'No need' }, subLabels: { 'zh-TW': '直接拿走', 'en-US': 'Keep as is' }, tts: '不用加熱' },
     ],
   },
   {
@@ -697,9 +697,9 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '白飯要多少？', 'en-US': 'How much rice?' },
     keywords: ['白飯', '飯要', '半碗', '飯量', '紫米', 'rice'],
     options: [
-      { labels: { 'zh-TW': '正常飯', 'en-US': 'Normal Rice' }, subLabels: { 'zh-TW': '標準飯量', 'en-US': 'Standard portion' }, tts: '飯正常，謝謝' },
-      { labels: { 'zh-TW': '少飯', 'en-US': 'Less Rice' }, subLabels: { 'zh-TW': '半碗飯', 'en-US': 'Half portion' }, tts: '飯少一點，謝謝' },
-      { labels: { 'zh-TW': '不要飯', 'en-US': 'No Rice' }, subLabels: { 'zh-TW': '只要菜', 'en-US': 'Dishes only' }, tts: '不要飯，謝謝' },
+      { labels: { 'zh-TW': '正常飯', 'en-US': 'Normal Rice' }, subLabels: { 'zh-TW': '標準飯量', 'en-US': 'Standard portion' }, tts: '飯正常' },
+      { labels: { 'zh-TW': '少飯', 'en-US': 'Less Rice' }, subLabels: { 'zh-TW': '半碗飯', 'en-US': 'Half portion' }, tts: '飯少一點' },
+      { labels: { 'zh-TW': '不要飯', 'en-US': 'No Rice' }, subLabels: { 'zh-TW': '只要菜', 'en-US': 'Dishes only' }, tts: '不要飯' },
     ],
   },
   {
@@ -720,8 +720,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '內用還是外帶？', 'en-US': 'For here or to go?' },
     keywords: ['內用', '外帶', '這裡吃', '帶走', 'to go', 'dine in', 'for here'],
     options: [
-      { labels: { 'zh-TW': '內用', 'en-US': 'Dine In' }, subLabels: { 'zh-TW': '在店裡吃', 'en-US': 'Eat here' }, tts: '內用，謝謝' },
-      { labels: { 'zh-TW': '外帶', 'en-US': 'Takeout' }, subLabels: { 'zh-TW': '帶走', 'en-US': 'To go' }, tts: '外帶，謝謝' },
+      { labels: { 'zh-TW': '內用', 'en-US': 'Dine In' }, subLabels: { 'zh-TW': '在店裡吃', 'en-US': 'Eat here' }, tts: '內用' },
+      { labels: { 'zh-TW': '外帶', 'en-US': 'Takeout' }, subLabels: { 'zh-TW': '帶走', 'en-US': 'To go' }, tts: '外帶' },
     ],
   },
   {
@@ -731,7 +731,7 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '有集點或會員嗎？', 'en-US': 'Membership or points?' },
     keywords: ['會員', '集點', '電話', '號碼', '統編', 'member', 'points', 'phone'],
     options: [
-      { labels: { 'zh-TW': '沒有會員', 'en-US': 'No Membership' }, subLabels: { 'zh-TW': '不用集點', 'en-US': 'Skip points' }, tts: '沒有會員，謝謝' },
+      { labels: { 'zh-TW': '沒有會員', 'en-US': 'No Membership' }, subLabels: { 'zh-TW': '不用集點', 'en-US': 'Skip points' }, tts: '沒有會員' },
       { labels: { 'zh-TW': '有，掃條碼', 'en-US': 'Yes, scan barcode' }, subLabels: { 'zh-TW': '出示手機會員', 'en-US': 'Show member app' }, tts: '有會員，請幫我掃條碼', showBarcode: true },
       { labels: { 'zh-TW': '我打字輸入電話', 'en-US': 'Type Phone Number' }, subLabels: { 'zh-TW': '用鍵盤顯示電話', 'en-US': 'Show phone on screen' }, tts: '請看我螢幕上的電話號碼', kind: 'type' },
     ],
@@ -745,7 +745,7 @@ const DEFAULT_CARDS_DATA = [
     options: [
       { labels: { 'zh-TW': '手機條碼', 'en-US': 'Phone Barcode' }, subLabels: { 'zh-TW': '顯示載具條碼給店員掃', 'en-US': 'Show carrier barcode on top screen' }, tts: '有載具，請掃手機條碼', showBarcode: true },
       { labels: { 'zh-TW': '紙本發票', 'en-US': 'Paper Receipt' }, subLabels: { 'zh-TW': '直接印出來', 'en-US': 'Print paper receipt' }, tts: '沒有載具，請印紙本發票' },
-      { labels: { 'zh-TW': '不用', 'en-US': 'No need' }, subLabels: { 'zh-TW': '不用載具', 'en-US': 'No carrier' }, tts: '不用載具，謝謝' },
+      { labels: { 'zh-TW': '不用', 'en-US': 'No need' }, subLabels: { 'zh-TW': '不用載具', 'en-US': 'No carrier' }, tts: '不用載具' },
     ],
   },
   {
@@ -755,9 +755,9 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '發票要印嗎？', 'en-US': 'Print the receipt?' },
     keywords: ['發票', '要印嗎', '印發票', '明細', '統編', 'receipt', 'print'],
     options: [
-      { labels: { 'zh-TW': '要印發票', 'en-US': 'Print Receipt' }, subLabels: { 'zh-TW': '紙本發票', 'en-US': 'Yes, print it' }, tts: '發票要印，謝謝' },
+      { labels: { 'zh-TW': '要印發票', 'en-US': 'Print Receipt' }, subLabels: { 'zh-TW': '紙本發票', 'en-US': 'Yes, print it' }, tts: '發票要印' },
       { labels: { 'zh-TW': '不用印，存載具', 'en-US': 'Save to Carrier' }, subLabels: { 'zh-TW': '顯示手機條碼', 'en-US': 'No print, scan barcode' }, tts: '發票不用印，請幫我存載具', showBarcode: true },
-      { labels: { 'zh-TW': '捐發票 / 不用', 'en-US': 'Donate / No Need' }, subLabels: { 'zh-TW': '不拿紙本發票', 'en-US': 'No paper receipt' }, tts: '發票不用印，謝謝' },
+      { labels: { 'zh-TW': '捐發票 / 不用', 'en-US': 'Donate / No Need' }, subLabels: { 'zh-TW': '不拿紙本發票', 'en-US': 'No paper receipt' }, tts: '發票不用印' },
     ],
   },
   {
@@ -767,8 +767,8 @@ const DEFAULT_CARDS_DATA = [
     question: { 'zh-TW': '需要袋子嗎？', 'en-US': 'Do you need a bag?' },
     keywords: ['袋子', '提袋', '購物袋', '塑膠袋', 'bag', 'plastic bag'],
     options: [
-      { labels: { 'zh-TW': '要袋子', 'en-US': 'Need a Bag' }, subLabels: { 'zh-TW': '加購購物袋', 'en-US': 'Buy a bag' }, tts: '我要買一個袋子，謝謝' },
-      { labels: { 'zh-TW': '不用袋子', 'en-US': 'No Bag' }, subLabels: { 'zh-TW': '自己拿或自備袋子', 'en-US': 'I have my own' }, tts: '不用袋子，謝謝' },
+      { labels: { 'zh-TW': '要袋子', 'en-US': 'Need a Bag' }, subLabels: { 'zh-TW': '加購購物袋', 'en-US': 'Buy a bag' }, tts: '我要買一個袋子' },
+      { labels: { 'zh-TW': '不用袋子', 'en-US': 'No Bag' }, subLabels: { 'zh-TW': '自己拿或自備袋子', 'en-US': 'I have my own' }, tts: '不用袋子' },
     ],
   },
   {
