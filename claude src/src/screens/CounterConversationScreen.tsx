@@ -3658,6 +3658,45 @@ export const CounterConversationScreen: React.FC = () => {
           })}
         </ScrollView>
 
+                {/* Standalone Polite Phrases Bar */}
+        <View style={{ flexDirection: 'row', gap: 8, paddingTop: 6 }}>
+          {[
+            { zh: '謝謝', en: 'Thank you', icon: '🙏' },
+            { zh: '好的，謝謝', en: 'OK, thanks', icon: '👍' },
+            { zh: '不好意思', en: 'Excuse me', icon: '🔔', chime: true },
+          ].map((item) => (
+            <Pressable
+              key={item.zh}
+              style={({ pressed }) => [
+                {
+                  flex: 1,
+                  backgroundColor: THEME.surface,
+                  borderColor: THEME.orange,
+                  borderWidth: 1,
+                  borderRadius: 12,
+                  paddingVertical: 9,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+                pressed && { transform: [{ scale: 0.96 }], opacity: 0.85 },
+              ]}
+              onPress={() => {
+                if ((item as any).chime) playAttentionChime();
+                else triggerHaptic(60);
+                setShowClerkBarcode(false);
+                setClerkLabel(currentLang === 'zh-TW' ? '禮貌致意' : 'Polite Note');
+                setClerkMessage(item.zh);
+                setClerkSub(currentLang === 'zh-TW' ? '感謝您的協助' : 'Thank you for your help');
+                speakSentence(item.zh, 'zh-TW');
+              }}
+            >
+              <Text style={{ color: THEME.text, fontSize: fs(14), fontWeight: '800' }}>
+                {item.icon} {currentLang === 'zh-TW' ? item.zh : item.en}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         {/* Bottom Action Bar */}
         <View style={[styles.bottomActionBar, { backgroundColor: 'transparent' }]}>
           <Pressable
@@ -5044,6 +5083,7 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
 
 
 
