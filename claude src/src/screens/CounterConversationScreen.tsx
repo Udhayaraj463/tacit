@@ -1369,7 +1369,27 @@ export const CounterConversationScreen: React.FC = () => {
     }
 
         const lowerRaw = rawText.toLowerCase();
-    if (watchNumber && rawText.includes(watchNumber)) {
+        const numToZh = (nStr: string) => {
+      const d = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+      const n = parseInt(nStr, 10);
+      if (isNaN(n) || n < 0 || n > 999) return '';
+      if (n < 10) return d[n];
+      if (n < 20) return '十' + (n % 10 ? d[n % 10] : '');
+      if (n < 100) return d[Math.floor(n / 10)] + '十' + (n % 10 ? d[n % 10] : '');
+      const h = Math.floor(n / 100);
+      const r = n % 100;
+      if (r === 0) return d[h] + '百';
+      if (r < 10) return d[h] + '百零' + d[r];
+      return d[h] + '百' + d[Math.floor(r / 10)] + '十' + (r % 10 ? d[r % 10] : '');
+    };
+    const cleanWatch = watchNumber.replace(/^0+/, '') || watchNumber;
+    const zhWatch = numToZh(cleanWatch);
+    if (
+      watchNumber &&
+      (rawText.includes(watchNumber) ||
+        rawText.includes(cleanWatch) ||
+        (zhWatch && rawText.includes(zhWatch)))
+    ) {
       setNumberCalledAlert(true);
       triggerHaptic([0, 150, 80, 150, 80, 200]);
     }
@@ -1748,7 +1768,7 @@ export const CounterConversationScreen: React.FC = () => {
 
     setShowClerkBarcode(shouldShowBarcode);
         setChosenOption(optObj || reply);
-    if (displayToClerk && displayToClerk.length <= 8 && !shouldShowBarcode) {
+    if (displayToClerk && displayToClerk.length <= 16 && !shouldShowBarcode) {
       setComboItems((prev) => (prev.includes(displayToClerk) ? prev : [...prev.slice(-4), displayToClerk]));
     }
     setClerkLabel(
@@ -2591,6 +2611,7 @@ export const CounterConversationScreen: React.FC = () => {
                 ]}
                 onPress={() => {
                   resetStageToIdle();
+                  setComboItems([]);
                   setIsCounterMode(true);
                 }}
               >
@@ -3102,7 +3123,8 @@ export const CounterConversationScreen: React.FC = () => {
       >
         <View style={styles.bottomHeaderGroup}>
           <View style={styles.bottomHeader}>
-            <Pressable
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <Pressable
               style={({ pressed }) => [
                 styles.venueDropdown,
                 { backgroundColor: THEME.surface, borderColor: THEME.border },
@@ -3114,6 +3136,62 @@ export const CounterConversationScreen: React.FC = () => {
                 {activeVenue.emoji} {getVenueShortName(activeVenue)} ▾
               </Text>
             </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    backgroundColor: watchNumber ? 'rgba(255, 159, 28, 0.16)' : THEME.surface,
+                    borderColor: watchNumber ? THEME.orange : THEME.border,
+                  },
+                  pressed && { transform: [{ scale: 0.96 }], opacity: 0.85 },
+                ]}
+                onPress={() => setIsNumberModalOpen(true)}
+                accessibilityLabel="號碼牌叫號提醒"
+              >
+                <View
+                  style={{
+                    backgroundColor: watchNumber ? THEME.orange : THEME.bg,
+                    borderColor: watchNumber ? THEME.orange : THEME.border,
+                    borderWidth: 1,
+                    borderRadius: 6,
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    minWidth: 32,
+                    maxWidth: 110,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: watchNumber ? '#000000' : THEME.orange,
+                      fontSize: fs(13),
+                      fontWeight: '900',
+                      fontVariant: ['tabular-nums'],
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {watchNumber ? watchNumber : '00'}
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    color: watchNumber ? THEME.orange : THEME.text,
+                    fontSize: fs(13),
+                    fontWeight: '700',
+                  }}
+                >
+                  {currentLang === 'zh-TW' ? '數字' : 'Number'}
+                </Text>
+              </Pressable>
+            </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Pressable
@@ -4126,81 +4204,152 @@ export const CounterConversationScreen: React.FC = () => {
           </View>
         </View>
       </Modal>      {/* Modal: Receipt Number Call Watcher (叫號提醒) */}
-      <Modal visible={isNumberModalOpen} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
+      <Modal visible={isNumberModalOpen} transparent animationType="slide" onRequestClose={() => setIsNumberModalOpen(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'transparent' }}>
+          <Pressable style={{ flex: 1 }} onPress={() => setIsNumberModalOpen(false)} />
           <View
-            style={[
-              styles.typeModalCard,
-              { backgroundColor: THEME.surfaceSolid, borderColor: THEME.border },
-            ]}
+            style={{
+              backgroundColor: THEME.surfaceSolid,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderTopWidth: 2,
+              borderLeftWidth: 1,
+              borderRightWidth: 1,
+              borderColor: THEME.orange,
+              padding: 18,
+              paddingBottom: Math.max(insets.bottom, 18),
+            }}
           >
-            <Text
-              style={[
-                styles.settingsModalTitle,
-                { color: THEME.text, fontSize: fs(20), marginBottom: 6 },
-              ]}
-            >
-              🔔 {currentLang === 'zh-TW' ? '號碼牌叫號提醒' : 'Order Number Watcher'}
-            </Text>
-            <Text style={{ color: THEME.textMuted, fontSize: fs(13), marginBottom: 12 }}>
-              {currentLang === 'zh-TW'
-                ? '輸入您的取餐號碼（例如：68），開啟語音監聽後，店員叫號時畫面會自動閃爍提醒您：'
-                : 'Enter your receipt number (e.g., 68). When the clerk calls it, your screen will flash:'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ backgroundColor: THEME.orange, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                  <Text style={{ color: '#000', fontSize: fs(12), fontWeight: '900', fontVariant: ['tabular-nums'] }}>00</Text>
+                </View>
+                <Text style={{ color: THEME.text, fontSize: fs(18), fontWeight: '800' }}>
+                  {currentLang === 'zh-TW' ? '即時顯示數字 (180° 店員畫面)' : 'Live 180° Number Display'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsNumberModalOpen(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={fs(22)} color={THEME.textMuted} />
+              </TouchableOpacity>
+            </View>
+
             <TextInput
               style={[
                 styles.inputField,
                 {
                   backgroundColor: THEME.bg,
                   color: THEME.text,
-                  borderColor: THEME.border,
-                  fontSize: fs(24),
+                  borderColor: THEME.orange,
+                  fontSize: fs(26),
                   fontWeight: '900',
                   textAlign: 'center',
+                  letterSpacing: 2,
+                  minHeight: 54,
+                  marginBottom: 10,
                 },
               ]}
-              placeholder="例如：68"
+              placeholder={currentLang === 'zh-TW' ? '輸入號碼、電話或數量...' : 'Type number, phone, or qty...'}
               placeholderTextColor={THEME.textMuted}
-              keyboardType="numeric"
+              keyboardType="phone-pad"
               value={watchNumber}
               onChangeText={(t) => {
-                setWatchNumber(t.trim());
+                const val = t.trim();
+                setWatchNumber(val);
                 setNumberCalledAlert(false);
-              }}
-            />
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={() => {
-                setIsNumberModalOpen(false);
-                if (watchNumber && !isLiveActive) {
-                  toggleLiveListening();
+                if (val) {
+                  setShowClerkBarcode(false);
+                  setClerkLabel(currentLang === 'zh-TW' ? '數字 / 號碼' : 'Number');
+                  setClerkMessage(val);
+                  setClerkSub(currentLang === 'zh-TW' ? '請看螢幕上的數字' : 'Please check the number');
+                } else {
+                  setClerkLabel('');
+                  setClerkMessage('');
+                  setClerkSub('');
                 }
               }}
-            >
-              <Text style={[styles.sendBtnText, { fontSize: fs(16) }]}>
-                {watchNumber
-                  ? currentLang === 'zh-TW'
-                    ? `✓ 開始監聽 #${watchNumber} 號`
-                    : `✓ Watch #${watchNumber}`
-                  : currentLang === 'zh-TW'
-                  ? '完成'
-                  : 'Done'}
-              </Text>
-            </TouchableOpacity>
-            {!!watchNumber && (
+            />
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4, marginBottom: 10 }}>
+              {KEYPAD_KEYS.map((k) => (
+                <View key={k} style={{ width: '33.333%', padding: 4 }}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      {
+                        height: 46,
+                        backgroundColor: THEME.bg,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: THEME.border,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      },
+                      pressed && { backgroundColor: THEME.surfaceLight, transform: [{ scale: 0.96 }] },
+                    ]}
+                    onPress={() => {
+                      const next =
+                        k === 'clear'
+                          ? ''
+                          : k === 'del'
+                          ? watchNumber.slice(0, -1)
+                          : (watchNumber + k).slice(0, 14);
+                      setWatchNumber(next);
+                      setNumberCalledAlert(false);
+                      if (next) {
+                        setShowClerkBarcode(false);
+                        setClerkLabel(currentLang === 'zh-TW' ? '數字 / 號碼' : 'Number');
+                        setClerkMessage(next);
+                        setClerkSub(currentLang === 'zh-TW' ? '請看螢幕上的數字' : 'Please check the number');
+                      } else {
+                        setClerkLabel('');
+                        setClerkMessage('');
+                        setClerkSub('');
+                      }
+                    }}
+                  >
+                    <Text style={{ color: THEME.text, fontSize: k === 'clear' ? fs(15) : fs(22), fontWeight: '800', fontVariant: ['tabular-nums'] }}>
+                      {k === 'del' ? '⌫' : k === 'clear' ? (currentLang === 'zh-TW' ? '清除' : 'Clear') : k}
+                    </Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity
-                style={[styles.closeBtn, { marginTop: 8 }]}
+                style={[styles.sendBtn, { flex: 1.3 }]}
                 onPress={() => {
-                  setWatchNumber('');
-                  setNumberCalledAlert(false);
+                  if (watchNumber) {
+                    setShowClerkBarcode(false);
+                    setClerkLabel(currentLang === 'zh-TW' ? '數字 / 號碼' : 'Number');
+                    setClerkMessage(watchNumber);
+                    speakSentence(watchNumber, 'zh-TW');
+                  }
                   setIsNumberModalOpen(false);
                 }}
               >
-                <Text style={[styles.closeBtnText, { color: THEME.danger, fontSize: fs(14) }]}>
-                  {currentLang === 'zh-TW' ? '清除號碼' : 'Clear Number'}
+                <Text style={[styles.sendBtnText, { fontSize: fs(15) }]}>
+                  🔊 {currentLang === 'zh-TW' ? '唸出並完成' : 'Speak & Done'}
                 </Text>
               </TouchableOpacity>
-            )}
+
+              <TouchableOpacity
+                style={[
+                  styles.sendBtn,
+                  { flex: 1, backgroundColor: THEME.bg, borderWidth: 1, borderColor: THEME.orange },
+                ]}
+                onPress={() => {
+                  if (watchNumber && !isLiveActive) {
+                    toggleLiveListening();
+                  }
+                  setIsNumberModalOpen(false);
+                }}
+              >
+                <Text style={[styles.sendBtnText, { color: THEME.orange, fontSize: fs(14) }]}>
+                  🔔 {currentLang === 'zh-TW' ? '監聽叫號' : 'Watch Call'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -5083,6 +5232,8 @@ const styles = StyleSheet.create({
 });
 
 export default CounterConversationScreen;
+
+
 
 
 
